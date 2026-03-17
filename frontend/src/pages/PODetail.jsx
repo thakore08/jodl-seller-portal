@@ -1,0 +1,458 @@
+import React, { useEffect, useState } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import {
+  ArrowLeft, CheckCircle, XCircle, FileText, Send,
+  Calendar, Package, RefreshCw, AlertTriangle,
+} from 'lucide-react';
+import { format } from 'date-fns';
+import api from '../services/api';
+import StatusBadge from '../components/StatusBadge';
+import Modal from '../components/Modal';
+
+// ─── Invoice Creation Form ───────────────────────────────────────────────────
+function InvoiceForm({ po, onClose, onSuccess }) {
+  const [form, setForm] = useState({
+    bill_number: `INV-${Date.now()}`,
+    date:        new Date().toISOString().split('T')[0],
+    due_date:    '',
+    notes:       '',
+    line_items:  (po.line_items || []).map(i => ({
+      item_id:     i.item_id,
+      name:        i.name,
+      description: i.description || '',
+      rate:        i.rate,
+      quantity:    i.quantity,
+      account_id:  i.account_id || '',
+    })),
+  });
+  const [file,    setFile]    = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState('');
+
+  const updateLineItem = (idx, field, value) => {
+    setForm(prev => {
+      const items = [...prev.line_items];
+      items[idx] = { ...items[idx], [field]: value };
+      return { ...prev, line_items: items };
+    });
+  };
+
+  const lineTotal = form.line_items.reduce(
+    (sum, i) => sum + (parseFloat(i.rate) || 0) * (parseFloat(i.quantity) || 0), 0
+  );
+
+  const handleSubmit = async e => {
+    e.preventDefault();
+    setLoading(true); setError('');
+
+    const formData = new FormData();
+    formData.append('purchaseorder_id', po.purchaseorder_id);
+    formData.append('bill_number',      form.bill_number);
+    formData.append('date',             form.date);
+    formData.append('due_date',         form.due_date);
+    formData.append('notes',            form.notes);
+    formData.append('line_items',       JSON.stringify(form.line_items));
+    if (file) formData.append('file', file);
+
+    try {
+      await api.post('/invoices', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      onSuccess();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to post invoice');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-5">
+      {error && (
+        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          {error}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="label">Invoice Number *</label>
+          <input className="input" value={form.bill_number}
+            onChange={e => setForm(p => ({ ...p, bill_number: e.target.value }))} required />
+        </div>
+        <div>
+          <label className="label">Invoice Date *</label>
+          <input type="date" className="input" value={form.date}
+            onChange={e => setForm(p => ({ ...p, date: e.target.value }))} required />
+        </div>
+        <div>
+          <label className="label">Due Date</label>
+          <input type="date" className="input" value={form.due_date}
+            onChange={e => setForm(p => ({ ...p, due_date: e.target.value }))} />
+        </div>
+        <div>
+          <label className="label">Notes</label>
+          <input className="input" placeholder="Optional" value={form.notes}
+            onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} />
+        </div>
+      </div>
+
+      {/* Line items */}
+      <div>
+        <label className="label">Line Items</label>
+        <div className="rounded-lg border border-gray-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Item</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Qty</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Rate</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {form.line_items.map((item, idx) => (
+                <tr key={idx}>
+                  <td className="px-3 py-2">
+                    <input className="input py-1 text-xs" value={item.name}
+                      onChange={e => updateLineItem(idx, 'name', e.target.value)} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <input type="number" className="input py-1 text-xs text-right w-20"
+                      value={item.quantity}
+                      onChange={e => updateLineItem(idx, 'quantity', e.target.value)} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <input type="number" className="input py-1 text-xs text-right w-24"
+                      value={item.rate}
+                      onChange={e => updateLineItem(idx, 'rate', e.target.value)} />
+                  </td>
+                  <td className="px-3 py-2 text-right font-medium">
+                    {((parseFloat(item.rate) || 0) * (parseFloat(item.quantity) || 0)).toLocaleString('en-IN')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="bg-gray-50 border-t border-gray-200">
+              <tr>
+                <td colSpan={3} className="px-3 py-2 text-right text-xs font-semibold text-gray-700">Total</td>
+                <td className="px-3 py-2 text-right text-sm font-bold text-gray-900">
+                  {po.currency_code} {lineTotal.toLocaleString('en-IN')}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      {/* File upload */}
+      <div>
+        <label className="label">Attach Invoice PDF / Image (optional)</label>
+        <input
+          type="file"
+          accept=".pdf,.jpg,.jpeg,.png"
+          className="block w-full text-sm text-gray-500 file:mr-4 file:rounded-lg file:border-0 file:bg-brand-50 file:px-4 file:py-2 file:text-xs file:font-medium file:text-brand-700 hover:file:bg-brand-100"
+          onChange={e => setFile(e.target.files[0])}
+        />
+      </div>
+
+      <div className="flex gap-3 pt-2">
+        <button type="button" onClick={onClose} className="btn-outline flex-1">Cancel</button>
+        <button type="submit" disabled={loading} className="btn-primary flex-1">
+          {loading ? (
+            <span className="flex items-center gap-2">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              Posting…
+            </span>
+          ) : (
+            <><Send className="h-4 w-4" /> Post to Zoho Books</>
+          )}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// ─── Reject Modal ────────────────────────────────────────────────────────────
+function RejectModal({ onClose, onReject }) {
+  const [reason, setReason] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleReject = async () => {
+    setLoading(true);
+    await onReject(reason);
+    setLoading(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-gray-600">Please provide a reason for rejecting this purchase order.</p>
+      <div>
+        <label className="label">Reason (optional)</label>
+        <textarea
+          className="input h-24 resize-none"
+          placeholder="e.g. Pricing discrepancy, cannot fulfill quantities…"
+          value={reason}
+          onChange={e => setReason(e.target.value)}
+        />
+      </div>
+      <div className="flex gap-3">
+        <button onClick={onClose} className="btn-outline flex-1">Cancel</button>
+        <button onClick={handleReject} disabled={loading} className="btn-danger flex-1">
+          {loading ? 'Rejecting…' : 'Reject PO'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main PO Detail page ─────────────────────────────────────────────────────
+export default function PODetail() {
+  const { id }       = useParams();
+  const navigate     = useNavigate();
+  const [po,        setPO]        = useState(null);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState('');
+  const [actionMsg, setActionMsg] = useState('');
+  const [showInvoice, setShowInvoice] = useState(false);
+  const [showReject,  setShowReject]  = useState(false);
+  const [acting,      setActing]      = useState(false);
+
+  const loadPO = async () => {
+    setLoading(true); setError('');
+    try {
+      const { data } = await api.get(`/purchase-orders/${id}`);
+      setPO(data.purchaseorder);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to load purchase order');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadPO(); }, [id]);
+
+  const handleAccept = async () => {
+    setActing(true); setError(''); setActionMsg('');
+    try {
+      await api.post(`/purchase-orders/${id}/accept`);
+      setActionMsg('Purchase order accepted successfully.');
+      await loadPO();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to accept PO');
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const handleReject = async reason => {
+    setActing(true); setError(''); setActionMsg('');
+    try {
+      await api.post(`/purchase-orders/${id}/reject`, { reason });
+      setShowReject(false);
+      setActionMsg('Purchase order rejected.');
+      await loadPO();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to reject PO');
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const canAct = po && (po.status === 'open' || po.status === 'draft');
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-600 border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (error && !po) {
+    return (
+      <div className="p-6">
+        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700">{error}</div>
+      </div>
+    );
+  }
+
+  if (!po) return null;
+
+  return (
+    <div className="p-6 space-y-5 max-w-4xl">
+      {/* Back */}
+      <Link to="/purchase-orders" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800">
+        <ArrowLeft className="h-4 w-4" /> Back to Purchase Orders
+      </Link>
+
+      {/* Action messages */}
+      {actionMsg && (
+        <div className="rounded-lg bg-green-50 border border-green-200 p-3 text-sm text-green-700 flex items-center gap-2">
+          <CheckCircle className="h-4 w-4 shrink-0" /> {actionMsg}
+        </div>
+      )}
+      {error && (
+        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{error}</div>
+      )}
+
+      {/* Header card */}
+      <div className="card p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <h1 className="text-lg font-bold text-gray-900">{po.purchaseorder_number}</h1>
+              <StatusBadge status={po.status} />
+            </div>
+            <p className="text-sm text-gray-500">
+              Issued by <span className="font-medium text-gray-700">{po.vendor_name || 'JODL'}</span>
+            </p>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex flex-wrap gap-2">
+            {canAct && (
+              <>
+                <button
+                  onClick={handleAccept}
+                  disabled={acting}
+                  className="btn-success"
+                >
+                  <CheckCircle className="h-4 w-4" />
+                  {acting ? 'Processing…' : 'Accept PO'}
+                </button>
+                <button
+                  onClick={() => setShowReject(true)}
+                  disabled={acting}
+                  className="btn-danger"
+                >
+                  <XCircle className="h-4 w-4" /> Reject PO
+                </button>
+              </>
+            )}
+            {po.status === 'open' && (
+              <button
+                onClick={() => setShowInvoice(true)}
+                className="btn-primary"
+              >
+                <FileText className="h-4 w-4" /> Create Invoice
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Meta info */}
+        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 border-t border-gray-100 pt-4">
+          <div className="flex items-center gap-2 text-sm">
+            <Calendar className="h-4 w-4 text-gray-400" />
+            <div>
+              <p className="text-xs text-gray-400">PO Date</p>
+              <p className="font-medium">{po.date ? format(new Date(po.date), 'dd MMM yyyy') : '—'}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <Calendar className="h-4 w-4 text-gray-400" />
+            <div>
+              <p className="text-xs text-gray-400">Expected Delivery</p>
+              <p className="font-medium">
+                {po.expected_delivery_date ? format(new Date(po.expected_delivery_date), 'dd MMM yyyy') : '—'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <Package className="h-4 w-4 text-gray-400" />
+            <div>
+              <p className="text-xs text-gray-400">Total Amount</p>
+              <p className="font-bold text-brand-600">
+                {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {po.notes && (
+          <div className="mt-4 border-t border-gray-100 pt-4">
+            <p className="text-xs text-gray-400 mb-1">Notes</p>
+            <p className="text-sm text-gray-600">{po.notes}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Line Items */}
+      <div className="card">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h2 className="text-sm font-semibold text-gray-900">Line Items</h2>
+        </div>
+        <table className="w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="table-th">Item</th>
+              <th className="table-th">Description</th>
+              <th className="table-th text-right">Qty</th>
+              <th className="table-th text-right">Unit</th>
+              <th className="table-th text-right">Rate</th>
+              <th className="table-th text-right">Amount</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {(po.line_items || []).map((item, idx) => (
+              <tr key={idx}>
+                <td className="table-td font-medium">{item.name}</td>
+                <td className="table-td text-gray-500 max-w-xs truncate">{item.description || '—'}</td>
+                <td className="table-td text-right">{item.quantity}</td>
+                <td className="table-td text-right">{item.unit || '—'}</td>
+                <td className="table-td text-right">
+                  {po.currency_code} {Number(item.rate || 0).toLocaleString('en-IN')}
+                </td>
+                <td className="table-td text-right font-semibold">
+                  {po.currency_code} {Number(item.item_total || item.rate * item.quantity || 0).toLocaleString('en-IN')}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="bg-gray-50 border-t border-gray-200">
+            <tr>
+              <td colSpan={5} className="px-4 py-3 text-right text-sm font-semibold text-gray-700">
+                Total
+              </td>
+              <td className="px-4 py-3 text-right text-base font-bold text-brand-600">
+                {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {/* Invoice Modal */}
+      <Modal
+        open={showInvoice}
+        onClose={() => setShowInvoice(false)}
+        title={`Post Invoice — ${po.purchaseorder_number}`}
+        maxWidth="max-w-2xl"
+      >
+        <InvoiceForm
+          po={po}
+          onClose={() => setShowInvoice(false)}
+          onSuccess={() => {
+            setShowInvoice(false);
+            setActionMsg('Invoice posted to Zoho Books successfully!');
+            loadPO();
+          }}
+        />
+      </Modal>
+
+      {/* Reject Modal */}
+      <Modal
+        open={showReject}
+        onClose={() => setShowReject(false)}
+        title="Reject Purchase Order"
+      >
+        <RejectModal
+          onClose={() => setShowReject(false)}
+          onReject={handleReject}
+        />
+      </Modal>
+    </div>
+  );
+}
