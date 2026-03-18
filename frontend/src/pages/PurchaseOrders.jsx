@@ -94,62 +94,83 @@ export default function PurchaseOrders() {
         <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700">{error}</div>
       )}
 
-      {/* Table */}
-      <div className="card overflow-hidden">
-        <table className="w-full">
-          <thead className="bg-gray-50 border-b border-gray-100">
-            <tr>
-              <th className="table-th">PO Number</th>
-              <th className="table-th">Date</th>
-              <th className="table-th hidden lg:table-cell">Expected Delivery</th>
-              <th className="table-th hidden md:table-cell">Items</th>
-              <th className="table-th">Total</th>
-              <th className="table-th">Status</th>
-              <th className="table-th">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {loading ? (
-              <tr>
-                <td colSpan={7} className="py-12 text-center">
-                  <div className="inline-block h-6 w-6 animate-spin rounded-full border-4 border-brand-600 border-t-transparent" />
-                </td>
-              </tr>
-            ) : filtered.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="py-12 text-center text-sm text-gray-400">
-                  {search ? 'No POs match your search.' : 'No purchase orders found.'}
-                </td>
-              </tr>
-            ) : filtered.map(po => (
-              <tr key={po.purchaseorder_id} className="hover:bg-gray-50 transition-colors">
-                <td className="table-td font-medium text-brand-600">{po.purchaseorder_number}</td>
-                <td className="table-td">{po.date ? format(new Date(po.date), 'dd MMM yyyy') : '—'}</td>
-                <td className="table-td hidden lg:table-cell">
-                  {po.expected_delivery_date
-                    ? format(new Date(po.expected_delivery_date), 'dd MMM yyyy')
-                    : '—'}
-                </td>
-                <td className="table-td hidden md:table-cell">
-                  {po.line_items?.length ?? '—'}
-                </td>
-                <td className="table-td font-semibold">
-                  {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
-                </td>
-                <td className="table-td"><StatusBadge status={po.status} /></td>
-                <td className="table-td">
-                  <Link
-                    to={`/purchase-orders/${po.purchaseorder_id}`}
-                    className="btn-outline px-3 py-1 text-xs"
-                  >
-                    View
-                  </Link>
-                </td>
-              </tr>
+      {/* Mobile card list */}
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <div className="h-7 w-7 animate-spin rounded-full border-4 border-brand-600 border-t-transparent" />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="card py-14 text-center text-sm text-gray-400">
+          {search ? 'No POs match your search.' : 'No purchase orders found.'}
+        </div>
+      ) : (
+        <>
+          {/* Mobile cards — visible below md */}
+          <ul className="space-y-3 md:hidden">
+            {filtered.map(po => (
+              <li key={po.purchaseorder_id} className="card p-4">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <p className="text-sm font-bold text-brand-600">{po.purchaseorder_number}</p>
+                  <StatusBadge status={po.status} />
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-500 mb-3">
+                  <span>Date: <span className="text-gray-700">{po.date ? format(new Date(po.date), 'dd MMM yyyy') : '—'}</span></span>
+                  <span>Total: <span className="font-semibold text-gray-800">{po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}</span></span>
+                  {po.vendor_name && (
+                    <span className="col-span-2 truncate">Vendor: <span className="text-gray-700">{po.vendor_name}</span></span>
+                  )}
+                </div>
+                <Link
+                  to={`/purchase-orders/${po.purchaseorder_id}`}
+                  className="btn-outline w-full justify-center px-3 py-1.5 text-xs"
+                >
+                  View Details
+                </Link>
+              </li>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </ul>
+
+          {/* Desktop table — visible from md up */}
+          <div className="card overflow-hidden hidden md:block">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="table-th">PO Number</th>
+                    <th className="table-th">Date</th>
+                    <th className="table-th hidden lg:table-cell">Expected Delivery</th>
+                    <th className="table-th hidden lg:table-cell">Vendor</th>
+                    <th className="table-th">Total</th>
+                    <th className="table-th">Status</th>
+                    <th className="table-th">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filtered.map(po => (
+                    <tr key={po.purchaseorder_id} className="hover:bg-gray-50 transition-colors">
+                      <td className="table-td font-medium text-brand-600">{po.purchaseorder_number}</td>
+                      <td className="table-td whitespace-nowrap">{po.date ? format(new Date(po.date), 'dd MMM yyyy') : '—'}</td>
+                      <td className="table-td whitespace-nowrap hidden lg:table-cell">
+                        {po.expected_delivery_date ? format(new Date(po.expected_delivery_date), 'dd MMM yyyy') : '—'}
+                      </td>
+                      <td className="table-td hidden lg:table-cell max-w-[160px] truncate">{po.vendor_name || '—'}</td>
+                      <td className="table-td font-semibold whitespace-nowrap">
+                        {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
+                      </td>
+                      <td className="table-td"><StatusBadge status={po.status} /></td>
+                      <td className="table-td">
+                        <Link to={`/purchase-orders/${po.purchaseorder_id}`} className="btn-outline px-3 py-1 text-xs">
+                          View
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

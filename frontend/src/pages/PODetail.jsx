@@ -281,7 +281,7 @@ export default function PODetail() {
   if (!po) return null;
 
   return (
-    <div className="p-6 space-y-5 max-w-4xl">
+    <div className="p-4 sm:p-6 space-y-5 max-w-4xl mx-auto">
       {/* Back */}
       <Link to="/purchase-orders" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800">
         <ArrowLeft className="h-4 w-4" /> Back to Purchase Orders
@@ -384,44 +384,69 @@ export default function PODetail() {
         <div className="px-5 py-4 border-b border-gray-100">
           <h2 className="text-sm font-semibold text-gray-900">Line Items</h2>
         </div>
-        <table className="w-full">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="table-th">Item</th>
-              <th className="table-th">Description</th>
-              <th className="table-th text-right">Qty</th>
-              <th className="table-th text-right">Unit</th>
-              <th className="table-th text-right">Rate</th>
-              <th className="table-th text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {(po.line_items || []).map((item, idx) => (
-              <tr key={idx}>
-                <td className="table-td font-medium">{item.name}</td>
-                <td className="table-td text-gray-500 max-w-xs truncate">{item.description || '—'}</td>
-                <td className="table-td text-right">{item.quantity}</td>
-                <td className="table-td text-right">{item.unit || '—'}</td>
-                <td className="table-td text-right">
-                  {po.currency_code} {Number(item.rate || 0).toLocaleString('en-IN')}
-                </td>
-                <td className="table-td text-right font-semibold">
+
+        {/* Mobile line-item cards */}
+        <ul className="divide-y divide-gray-100 sm:hidden">
+          {(po.line_items || []).map((item, idx) => (
+            <li key={idx} className="px-4 py-3 space-y-1">
+              <p className="text-sm font-medium text-gray-900">{item.name}</p>
+              {item.description && <p className="text-xs text-gray-500">{item.description}</p>}
+              <div className="flex items-center justify-between text-xs text-gray-600 pt-1">
+                <span>Qty: {item.quantity} {item.unit ? `(${item.unit})` : ''}</span>
+                <span>Rate: {po.currency_code} {Number(item.rate || 0).toLocaleString('en-IN')}</span>
+                <span className="font-semibold text-gray-800">
                   {po.currency_code} {Number(item.item_total || item.rate * item.quantity || 0).toLocaleString('en-IN')}
+                </span>
+              </div>
+            </li>
+          ))}
+          <li className="px-4 py-3 bg-gray-50 flex justify-between items-center border-t border-gray-200">
+            <span className="text-sm font-semibold text-gray-700">Total</span>
+            <span className="text-base font-bold text-brand-600">
+              {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
+            </span>
+          </li>
+        </ul>
+
+        {/* Desktop table */}
+        <div className="hidden sm:block overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="table-th">Item</th>
+                <th className="table-th hidden md:table-cell">Description</th>
+                <th className="table-th text-right">Qty</th>
+                <th className="table-th text-right hidden md:table-cell">Unit</th>
+                <th className="table-th text-right">Rate</th>
+                <th className="table-th text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {(po.line_items || []).map((item, idx) => (
+                <tr key={idx}>
+                  <td className="table-td font-medium">{item.name}</td>
+                  <td className="table-td text-gray-500 max-w-xs truncate hidden md:table-cell">{item.description || '—'}</td>
+                  <td className="table-td text-right">{item.quantity}</td>
+                  <td className="table-td text-right hidden md:table-cell">{item.unit || '—'}</td>
+                  <td className="table-td text-right whitespace-nowrap">
+                    {po.currency_code} {Number(item.rate || 0).toLocaleString('en-IN')}
+                  </td>
+                  <td className="table-td text-right font-semibold whitespace-nowrap">
+                    {po.currency_code} {Number(item.item_total || item.rate * item.quantity || 0).toLocaleString('en-IN')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="bg-gray-50 border-t border-gray-200">
+              <tr>
+                <td colSpan={5} className="px-4 py-3 text-right text-sm font-semibold text-gray-700">Total</td>
+                <td className="px-4 py-3 text-right text-base font-bold text-brand-600 whitespace-nowrap">
+                  {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
                 </td>
               </tr>
-            ))}
-          </tbody>
-          <tfoot className="bg-gray-50 border-t border-gray-200">
-            <tr>
-              <td colSpan={5} className="px-4 py-3 text-right text-sm font-semibold text-gray-700">
-                Total
-              </td>
-              <td className="px-4 py-3 text-right text-base font-bold text-brand-600">
-                {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
+            </tfoot>
+          </table>
+        </div>
       </div>
 
       {/* Invoice Modal */}

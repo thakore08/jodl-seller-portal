@@ -1,71 +1,127 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, ShoppingCart, FileText,
-  MessageSquare, LogOut, Package,
+  LayoutDashboard, ShoppingCart, MessageSquare,
+  LogOut, Package, X, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const navItems = [
-  { to: '/',                  icon: LayoutDashboard, label: 'Dashboard',        end: true },
-  { to: '/purchase-orders',   icon: ShoppingCart,    label: 'Purchase Orders' },
-  { to: '/whatsapp',          icon: MessageSquare,   label: 'WhatsApp' },
+  { to: '/',                icon: LayoutDashboard, label: 'Dashboard',       end: true },
+  { to: '/purchase-orders', icon: ShoppingCart,    label: 'Purchase Orders' },
+  { to: '/whatsapp',        icon: MessageSquare,   label: 'WhatsApp' },
 ];
 
-export default function Sidebar() {
+/**
+ * Sidebar — dual-mode:
+ *  Mobile  : fixed slide-in drawer (open/onClose)
+ *  Desktop : collapsible — full (w-64) ↔ icon-only (w-16) via collapsed/onToggleCollapse
+ */
+export default function Sidebar({ open, onClose, collapsed, onToggleCollapse }) {
   const { seller, logout } = useAuth();
 
   return (
-    <aside className="flex w-64 flex-col border-r border-gray-200 bg-white">
-      {/* Brand */}
-      <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-100">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600">
-          <Package className="h-5 w-5 text-white" />
+    <aside
+      className={`
+        fixed inset-y-0 left-0 z-30 flex flex-col border-r border-gray-200 bg-white
+        transition-all duration-300 ease-in-out
+        ${open ? 'translate-x-0' : '-translate-x-full'}
+        lg:relative lg:translate-x-0
+        ${collapsed ? 'lg:w-16' : 'lg:w-64'}
+        w-64
+      `}
+    >
+      {/* ── Brand row ─────────────────────────────────────────── */}
+      <div className={`flex items-center border-b border-gray-100 py-5 ${collapsed ? 'lg:justify-center lg:px-0 px-5' : 'justify-between px-5'}`}>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-600">
+            <Package className="h-5 w-5 text-white" />
+          </div>
+          {!collapsed && (
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-gray-900 leading-tight">JODL</p>
+              <p className="text-xs text-gray-500">Seller Portal</p>
+            </div>
+          )}
         </div>
-        <div>
-          <p className="text-sm font-bold text-gray-900 leading-tight">JODL</p>
-          <p className="text-xs text-gray-500">Seller Portal</p>
-        </div>
+
+        {/* Mobile close button */}
+        <button
+          onClick={onClose}
+          className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors lg:hidden"
+          aria-label="Close menu"
+        >
+          <X className="h-5 w-5" />
+        </button>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3 py-4">
+      {/* ── Navigation ────────────────────────────────────────── */}
+      <nav className="flex-1 space-y-1 px-2 py-4">
         {navItems.map(({ to, icon: Icon, label, end }) => (
           <NavLink
             key={to}
             to={to}
             end={end}
+            onClick={onClose}
+            title={collapsed ? label : undefined}
             className={({ isActive }) =>
-              `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-brand-50 text-brand-700'
-                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-              }`
+              `flex items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-colors
+               ${collapsed ? 'lg:justify-center lg:px-0' : 'gap-3'}
+               ${isActive
+                 ? 'bg-brand-50 text-brand-700'
+                 : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+               }`
             }
           >
             <Icon className="h-4 w-4 shrink-0" />
-            {label}
+            {!collapsed && <span>{label}</span>}
           </NavLink>
         ))}
       </nav>
 
-      {/* Seller info + logout */}
-      <div className="border-t border-gray-100 px-4 py-4">
-        <div className="mb-3 flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-100 text-brand-700 text-sm font-semibold">
-            {seller?.name?.[0] || 'S'}
+      {/* ── Seller info + logout ──────────────────────────────── */}
+      <div className="border-t border-gray-100 px-2 py-4 space-y-1">
+        {!collapsed ? (
+          <div className="mb-2 flex items-center gap-3 px-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700 text-sm font-semibold">
+              {seller?.name?.[0] || 'S'}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-gray-900">{seller?.name}</p>
+              <p className="truncate text-xs text-gray-500">{seller?.company}</p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-gray-900">{seller?.name}</p>
-            <p className="truncate text-xs text-gray-500">{seller?.company}</p>
+        ) : (
+          <div className="flex justify-center mb-2" title={seller?.name}>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-100 text-brand-700 text-sm font-semibold">
+              {seller?.name?.[0] || 'S'}
+            </div>
           </div>
-        </div>
+        )}
+
         <button
           onClick={logout}
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+          title={collapsed ? 'Sign out' : undefined}
+          className={`flex w-full items-center rounded-lg px-3 py-2 text-sm font-medium text-gray-600
+            hover:bg-gray-50 hover:text-gray-900 transition-colors
+            ${collapsed ? 'lg:justify-center lg:px-0' : 'gap-2'}`}
         >
-          <LogOut className="h-4 w-4" />
-          Sign out
+          <LogOut className="h-4 w-4 shrink-0" />
+          {!collapsed && <span>Sign out</span>}
+        </button>
+
+        {/* Desktop collapse toggle */}
+        <button
+          onClick={onToggleCollapse}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className={`hidden lg:flex w-full items-center rounded-lg px-3 py-2 text-sm font-medium
+            text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors
+            ${collapsed ? 'justify-center px-0' : 'gap-2'}`}
+        >
+          {collapsed
+            ? <ChevronRight className="h-4 w-4 shrink-0" />
+            : <><ChevronLeft className="h-4 w-4 shrink-0" /><span>Collapse</span></>
+          }
         </button>
       </div>
     </aside>
