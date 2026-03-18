@@ -84,43 +84,73 @@ export default function Dashboard() {
 
         {loading ? (
           <div className="flex justify-center py-10">
-            <div className="h-6 w-6 animate-spin rounded-full border-3 border-brand-600 border-t-transparent" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-brand-600 border-t-transparent" />
           </div>
         ) : recentPOs.length === 0 ? (
           <div className="py-12 text-center text-sm text-gray-400">No purchase orders found.</div>
         ) : (
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-100">
-              <tr>
-                <th className="table-th">PO Number</th>
-                <th className="table-th">Date</th>
-                <th className="table-th hidden md:table-cell">Expected Delivery</th>
-                <th className="table-th">Amount</th>
-                <th className="table-th">Status</th>
-                <th className="table-th" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
+          <>
+            {/* Mobile card list */}
+            <ul className="divide-y divide-gray-100 sm:hidden">
               {recentPOs.map(po => (
-                <tr key={po.purchaseorder_id} className="hover:bg-gray-50 transition-colors">
-                  <td className="table-td font-medium text-brand-600">{po.purchaseorder_number}</td>
-                  <td className="table-td">{po.date ? format(new Date(po.date), 'dd MMM yyyy') : '—'}</td>
-                  <td className="table-td hidden md:table-cell">
-                    {po.expected_delivery_date ? format(new Date(po.expected_delivery_date), 'dd MMM yyyy') : '—'}
-                  </td>
-                  <td className="table-td font-medium">
-                    {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
-                  </td>
-                  <td className="table-td"><StatusBadge status={po.status} /></td>
-                  <td className="table-td">
-                    <Link to={`/purchase-orders/${po.purchaseorder_id}`} className="text-xs text-brand-600 hover:underline">
-                      View
+                <li key={po.purchaseorder_id} className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-brand-600 truncate">{po.purchaseorder_number}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {po.date ? format(new Date(po.date), 'dd MMM yyyy') : '—'}
+                      </p>
+                    </div>
+                    <StatusBadge status={po.status} />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <p className="text-sm font-medium text-gray-800">
+                      {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
+                    </p>
+                    <Link to={`/purchase-orders/${po.purchaseorder_id}`} className="text-xs font-medium text-brand-600 hover:underline">
+                      View →
                     </Link>
-                  </td>
-                </tr>
+                  </div>
+                </li>
               ))}
-            </tbody>
-          </table>
+            </ul>
+
+            {/* Desktop table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="table-th">PO Number</th>
+                    <th className="table-th">Date</th>
+                    <th className="table-th hidden md:table-cell">Expected Delivery</th>
+                    <th className="table-th">Amount</th>
+                    <th className="table-th">Status</th>
+                    <th className="table-th" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {recentPOs.map(po => (
+                    <tr key={po.purchaseorder_id} className="hover:bg-gray-50 transition-colors">
+                      <td className="table-td font-medium text-brand-600">{po.purchaseorder_number}</td>
+                      <td className="table-td">{po.date ? format(new Date(po.date), 'dd MMM yyyy') : '—'}</td>
+                      <td className="table-td hidden md:table-cell">
+                        {po.expected_delivery_date ? format(new Date(po.expected_delivery_date), 'dd MMM yyyy') : '—'}
+                      </td>
+                      <td className="table-td font-medium">
+                        {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
+                      </td>
+                      <td className="table-td"><StatusBadge status={po.status} /></td>
+                      <td className="table-td">
+                        <Link to={`/purchase-orders/${po.purchaseorder_id}`} className="text-xs text-brand-600 hover:underline">
+                          View
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </div>
