@@ -4,7 +4,8 @@ import { Menu, Package } from 'lucide-react';
 import Sidebar from './Sidebar';
 
 export default function Layout() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen,     setSidebarOpen]     = useState(false); // mobile drawer
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // desktop collapse
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
@@ -16,10 +17,15 @@ export default function Layout() {
         />
       )}
 
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(c => !c)}
+      />
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Mobile top bar — hidden on lg+ where sidebar is always visible */}
+      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
+        {/* Mobile top bar */}
         <header className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 shadow-sm lg:hidden">
           <button
             onClick={() => setSidebarOpen(true)}
