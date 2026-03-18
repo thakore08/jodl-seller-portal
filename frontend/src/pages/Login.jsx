@@ -27,22 +27,22 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-brand-50 to-indigo-100 p-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-brand-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
       <div className="w-full max-w-sm">
         {/* Brand */}
         <div className="mb-8 flex flex-col items-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 shadow-lg mb-4">
             <Package className="h-7 w-7 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">JODL Seller Portal</h1>
-          <p className="mt-1 text-sm text-gray-500">Sign in to manage your orders</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">JODL Seller Portal</h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Sign in to manage your orders</p>
         </div>
 
         {/* Form */}
         <div className="card p-8 shadow-lg">
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
-              <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+              <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 {error}
               </div>
@@ -75,7 +75,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => setShow(s => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                 >
                   {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -92,7 +92,7 @@ export default function Login() {
             </button>
           </form>
 
-          <p className="mt-4 text-center text-xs text-gray-400">
+          <p className="mt-4 text-center text-xs text-gray-400 dark:text-gray-500">
             Demo: seller@demo.com / password123
           </p>
         </div>

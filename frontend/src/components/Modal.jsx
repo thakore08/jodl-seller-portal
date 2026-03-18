@@ -16,10 +16,10 @@ export default function Modal({ open, onClose, title, children, maxWidth = 'max-
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       {/* Panel */}
-      <div className={`relative w-full ${maxWidth} rounded-xl bg-white shadow-2xl`}>
-        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-          <h2 className="text-base font-semibold text-gray-900">{title}</h2>
-          <button onClick={onClose} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+      <div className={`relative w-full ${maxWidth} rounded-xl bg-white dark:bg-gray-800 shadow-2xl`}>
+        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-700 px-6 py-4">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
+          <button onClick={onClose} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300">
             <X className="h-5 w-5" />
           </button>
         </div>

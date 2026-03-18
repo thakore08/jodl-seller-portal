@@ -69,7 +69,7 @@ function InvoiceForm({ po, onClose, onSuccess }) {
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex gap-2">
+        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 flex gap-2 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
           {error}
         </div>
@@ -101,17 +101,17 @@ function InvoiceForm({ po, onClose, onSuccess }) {
       {/* Line items */}
       <div>
         <label className="label">Line Items</label>
-        <div className="rounded-lg border border-gray-200 overflow-hidden">
+        <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-50 dark:bg-gray-700/50">
               <tr>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">Item</th>
-                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Qty</th>
-                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Rate</th>
-                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500">Amount</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Item</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400">Qty</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400">Rate</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400">Amount</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {form.line_items.map((item, idx) => (
                 <tr key={idx}>
                   <td className="px-3 py-2">
@@ -128,16 +128,16 @@ function InvoiceForm({ po, onClose, onSuccess }) {
                       value={item.rate}
                       onChange={e => updateLineItem(idx, 'rate', e.target.value)} />
                   </td>
-                  <td className="px-3 py-2 text-right font-medium">
+                  <td className="px-3 py-2 text-right font-medium text-gray-700 dark:text-gray-300">
                     {((parseFloat(item.rate) || 0) * (parseFloat(item.quantity) || 0)).toLocaleString('en-IN')}
                   </td>
                 </tr>
               ))}
             </tbody>
-            <tfoot className="bg-gray-50 border-t border-gray-200">
+            <tfoot className="bg-gray-50 dark:bg-gray-700/50 border-t border-gray-200 dark:border-gray-700">
               <tr>
-                <td colSpan={3} className="px-3 py-2 text-right text-xs font-semibold text-gray-700">Total</td>
-                <td className="px-3 py-2 text-right text-sm font-bold text-gray-900">
+                <td colSpan={3} className="px-3 py-2 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">Total</td>
+                <td className="px-3 py-2 text-right text-sm font-bold text-gray-900 dark:text-gray-100">
                   {po.currency_code} {lineTotal.toLocaleString('en-IN')}
                 </td>
               </tr>
@@ -152,7 +152,7 @@ function InvoiceForm({ po, onClose, onSuccess }) {
         <input
           type="file"
           accept=".pdf,.jpg,.jpeg,.png"
-          className="block w-full text-sm text-gray-500 file:mr-4 file:rounded-lg file:border-0 file:bg-brand-50 file:px-4 file:py-2 file:text-xs file:font-medium file:text-brand-700 hover:file:bg-brand-100"
+          className="block w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:rounded-lg file:border-0 file:bg-brand-50 file:px-4 file:py-2 file:text-xs file:font-medium file:text-brand-700 hover:file:bg-brand-100 dark:file:bg-brand-900/30 dark:file:text-brand-400"
           onChange={e => setFile(e.target.files[0])}
         />
       </div>
@@ -187,7 +187,7 @@ function RejectModal({ onClose, onReject }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-600">Please provide a reason for rejecting this purchase order.</p>
+      <p className="text-sm text-gray-600 dark:text-gray-400">Please provide a reason for rejecting this purchase order.</p>
       <div>
         <label className="label">Reason (optional)</label>
         <textarea
@@ -273,7 +273,7 @@ export default function PODetail() {
   if (error && !po) {
     return (
       <div className="p-6">
-        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700">{error}</div>
+        <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">{error}</div>
       </div>
     );
   }
@@ -283,18 +283,18 @@ export default function PODetail() {
   return (
     <div className="p-4 sm:p-6 space-y-5 max-w-4xl mx-auto">
       {/* Back */}
-      <Link to="/purchase-orders" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800">
+      <Link to="/purchase-orders" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
         <ArrowLeft className="h-4 w-4" /> Back to Purchase Orders
       </Link>
 
       {/* Action messages */}
       {actionMsg && (
-        <div className="rounded-lg bg-green-50 border border-green-200 p-3 text-sm text-green-700 flex items-center gap-2">
+        <div className="rounded-lg bg-green-50 border border-green-200 p-3 text-sm text-green-700 flex items-center gap-2 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400">
           <CheckCircle className="h-4 w-4 shrink-0" /> {actionMsg}
         </div>
       )}
       {error && (
-        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">{error}</div>
       )}
 
       {/* Header card */}
@@ -302,11 +302,11 @@ export default function PODetail() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-lg font-bold text-gray-900">{po.purchaseorder_number}</h1>
+              <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">{po.purchaseorder_number}</h1>
               <StatusBadge status={po.status} />
             </div>
-            <p className="text-sm text-gray-500">
-              Issued by <span className="font-medium text-gray-700">{po.vendor_name || 'JODL'}</span>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Issued by <span className="font-medium text-gray-700 dark:text-gray-300">{po.vendor_name || 'JODL'}</span>
             </p>
           </div>
 
@@ -343,28 +343,28 @@ export default function PODetail() {
         </div>
 
         {/* Meta info */}
-        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 border-t border-gray-100 pt-4">
+        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 border-t border-gray-100 dark:border-gray-700 pt-4">
           <div className="flex items-center gap-2 text-sm">
-            <Calendar className="h-4 w-4 text-gray-400" />
+            <Calendar className="h-4 w-4 text-gray-400 dark:text-gray-500" />
             <div>
-              <p className="text-xs text-gray-400">PO Date</p>
-              <p className="font-medium">{po.date ? format(new Date(po.date), 'dd MMM yyyy') : '—'}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">PO Date</p>
+              <p className="font-medium text-gray-900 dark:text-gray-100">{po.date ? format(new Date(po.date), 'dd MMM yyyy') : '—'}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 text-sm">
-            <Calendar className="h-4 w-4 text-gray-400" />
+            <Calendar className="h-4 w-4 text-gray-400 dark:text-gray-500" />
             <div>
-              <p className="text-xs text-gray-400">Expected Delivery</p>
-              <p className="font-medium">
+              <p className="text-xs text-gray-400 dark:text-gray-500">Expected Delivery</p>
+              <p className="font-medium text-gray-900 dark:text-gray-100">
                 {po.expected_delivery_date ? format(new Date(po.expected_delivery_date), 'dd MMM yyyy') : '—'}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2 text-sm">
-            <Package className="h-4 w-4 text-gray-400" />
+            <Package className="h-4 w-4 text-gray-400 dark:text-gray-500" />
             <div>
-              <p className="text-xs text-gray-400">Total Amount</p>
-              <p className="font-bold text-brand-600">
+              <p className="text-xs text-gray-400 dark:text-gray-500">Total Amount</p>
+              <p className="font-bold text-brand-600 dark:text-brand-400">
                 {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
               </p>
             </div>
@@ -372,37 +372,37 @@ export default function PODetail() {
         </div>
 
         {po.notes && (
-          <div className="mt-4 border-t border-gray-100 pt-4">
-            <p className="text-xs text-gray-400 mb-1">Notes</p>
-            <p className="text-sm text-gray-600">{po.notes}</p>
+          <div className="mt-4 border-t border-gray-100 dark:border-gray-700 pt-4">
+            <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">Notes</p>
+            <p className="text-sm text-gray-600 dark:text-gray-300">{po.notes}</p>
           </div>
         )}
       </div>
 
       {/* Line Items */}
       <div className="card">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h2 className="text-sm font-semibold text-gray-900">Line Items</h2>
+        <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Line Items</h2>
         </div>
 
         {/* Mobile line-item cards */}
-        <ul className="divide-y divide-gray-100 sm:hidden">
+        <ul className="divide-y divide-gray-100 dark:divide-gray-700 sm:hidden">
           {(po.line_items || []).map((item, idx) => (
             <li key={idx} className="px-4 py-3 space-y-1">
-              <p className="text-sm font-medium text-gray-900">{item.name}</p>
-              {item.description && <p className="text-xs text-gray-500">{item.description}</p>}
-              <div className="flex items-center justify-between text-xs text-gray-600 pt-1">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.name}</p>
+              {item.description && <p className="text-xs text-gray-500 dark:text-gray-400">{item.description}</p>}
+              <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400 pt-1">
                 <span>Qty: {item.quantity} {item.unit ? `(${item.unit})` : ''}</span>
                 <span>Rate: {po.currency_code} {Number(item.rate || 0).toLocaleString('en-IN')}</span>
-                <span className="font-semibold text-gray-800">
+                <span className="font-semibold text-gray-800 dark:text-gray-200">
                   {po.currency_code} {Number(item.item_total || item.rate * item.quantity || 0).toLocaleString('en-IN')}
                 </span>
               </div>
             </li>
           ))}
-          <li className="px-4 py-3 bg-gray-50 flex justify-between items-center border-t border-gray-200">
-            <span className="text-sm font-semibold text-gray-700">Total</span>
-            <span className="text-base font-bold text-brand-600">
+          <li className="px-4 py-3 bg-gray-50 dark:bg-gray-700/50 flex justify-between items-center border-t border-gray-200 dark:border-gray-700">
+            <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Total</span>
+            <span className="text-base font-bold text-brand-600 dark:text-brand-400">
               {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
             </span>
           </li>
@@ -411,7 +411,7 @@ export default function PODetail() {
         {/* Desktop table */}
         <div className="hidden sm:block overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-50 dark:bg-gray-700/50">
               <tr>
                 <th className="table-th">Item</th>
                 <th className="table-th hidden md:table-cell">Description</th>
@@ -421,11 +421,11 @@ export default function PODetail() {
                 <th className="table-th text-right">Amount</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
               {(po.line_items || []).map((item, idx) => (
                 <tr key={idx}>
                   <td className="table-td font-medium">{item.name}</td>
-                  <td className="table-td text-gray-500 max-w-xs truncate hidden md:table-cell">{item.description || '—'}</td>
+                  <td className="table-td text-gray-500 dark:text-gray-400 max-w-xs truncate hidden md:table-cell">{item.description || '—'}</td>
                   <td className="table-td text-right">{item.quantity}</td>
                   <td className="table-td text-right hidden md:table-cell">{item.unit || '—'}</td>
                   <td className="table-td text-right whitespace-nowrap">
@@ -437,10 +437,10 @@ export default function PODetail() {
                 </tr>
               ))}
             </tbody>
-            <tfoot className="bg-gray-50 border-t border-gray-200">
+            <tfoot className="bg-gray-50 dark:bg-gray-700/50 border-t border-gray-200 dark:border-gray-700">
               <tr>
-                <td colSpan={5} className="px-4 py-3 text-right text-sm font-semibold text-gray-700">Total</td>
-                <td className="px-4 py-3 text-right text-base font-bold text-brand-600 whitespace-nowrap">
+                <td colSpan={5} className="px-4 py-3 text-right text-sm font-semibold text-gray-700 dark:text-gray-300">Total</td>
+                <td className="px-4 py-3 text-right text-base font-bold text-brand-600 dark:text-brand-400 whitespace-nowrap">
                   {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
                 </td>
               </tr>

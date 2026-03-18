@@ -15,7 +15,7 @@ function Toggle({ checked, onChange, label, description }) {
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={`relative mt-0.5 inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2 ${
-          checked ? 'bg-brand-600' : 'bg-gray-200'
+          checked ? 'bg-brand-600' : 'bg-gray-200 dark:bg-gray-600'
         }`}
       >
         <span
@@ -25,8 +25,8 @@ function Toggle({ checked, onChange, label, description }) {
         />
       </button>
       <div>
-        <p className="text-sm font-medium text-gray-900">{label}</p>
-        {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
+        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{label}</p>
+        {description && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{description}</p>}
       </div>
     </label>
   );
@@ -82,29 +82,33 @@ export default function WhatsApp() {
     <div className="p-6 space-y-6 max-w-2xl">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
           <MessageSquare className="h-5 w-5 text-green-600" />
           WhatsApp for Business
         </h1>
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Receive PO notifications and act on them directly from WhatsApp.
         </p>
       </div>
 
       {/* API Status */}
-      <div className={`card p-4 flex items-start gap-3 ${status?.configured ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
+      <div className={`card p-4 flex items-start gap-3 ${
+        status?.configured
+          ? 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20'
+          : 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20'
+      }`}>
         {status?.configured
           ? <CheckCircle className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
           : <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
         }
         <div>
-          <p className={`text-sm font-medium ${status?.configured ? 'text-green-800' : 'text-amber-800'}`}>
+          <p className={`text-sm font-medium ${status?.configured ? 'text-green-800 dark:text-green-400' : 'text-amber-800 dark:text-amber-400'}`}>
             {status?.configured ? 'WhatsApp Business API is connected' : 'WhatsApp Business API not configured'}
           </p>
           {status?.configured ? (
-            <p className="text-xs text-green-700 mt-0.5">Phone Number ID: {status.phoneNumberId}</p>
+            <p className="text-xs text-green-700 dark:text-green-500 mt-0.5">Phone Number ID: {status.phoneNumberId}</p>
           ) : (
-            <p className="text-xs text-amber-700 mt-0.5">
+            <p className="text-xs text-amber-700 dark:text-amber-500 mt-0.5">
               Set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN in backend .env to enable.
             </p>
           )}
@@ -115,8 +119,8 @@ export default function WhatsApp() {
       {msg.text && (
         <div className={`rounded-lg p-3 text-sm flex items-center gap-2 ${
           msg.type === 'success'
-            ? 'bg-green-50 border border-green-200 text-green-700'
-            : 'bg-red-50 border border-red-200 text-red-700'
+            ? 'bg-green-50 border border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400'
+            : 'bg-red-50 border border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400'
         }`}>
           {msg.type === 'success'
             ? <CheckCircle className="h-4 w-4 shrink-0" />
@@ -128,12 +132,12 @@ export default function WhatsApp() {
 
       {/* Settings */}
       <div className="card p-5 space-y-5">
-        <h2 className="text-sm font-semibold text-gray-900">Your WhatsApp Number</h2>
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Your WhatsApp Number</h2>
 
         <div>
           <label className="label">Phone Number (with country code)</label>
           <div className="relative">
-            <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-gray-500" />
             <input
               type="tel"
               className="input pl-9"
@@ -142,7 +146,7 @@ export default function WhatsApp() {
               onChange={e => setForm(p => ({ ...p, whatsapp_number: e.target.value }))}
             />
           </div>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
             Must be registered with WhatsApp. Include + and country code.
           </p>
         </div>
@@ -158,8 +162,8 @@ export default function WhatsApp() {
       {/* Notification Preferences */}
       <div className="card p-5 space-y-4">
         <div className="flex items-center gap-2">
-          <Bell className="h-4 w-4 text-gray-500" />
-          <h2 className="text-sm font-semibold text-gray-900">Notification Preferences</h2>
+          <Bell className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Notification Preferences</h2>
         </div>
 
         <Toggle
@@ -189,13 +193,13 @@ export default function WhatsApp() {
       {/* Test Message */}
       <div className="card p-5 space-y-4">
         <div className="flex items-center gap-2">
-          <Send className="h-4 w-4 text-gray-500" />
-          <h2 className="text-sm font-semibold text-gray-900">Send Test Message</h2>
+          <Send className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Send Test Message</h2>
         </div>
 
-        <div className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 p-3">
-          <Info className="h-4 w-4 text-blue-600 shrink-0" />
-          <p className="text-xs text-blue-700">
+        <div className="flex items-center gap-2 rounded-lg bg-blue-50 border border-blue-200 p-3 dark:bg-blue-900/20 dark:border-blue-800">
+          <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+          <p className="text-xs text-blue-700 dark:text-blue-400">
             Leave phone blank to send to your registered number above.
           </p>
         </div>
@@ -221,7 +225,7 @@ export default function WhatsApp() {
         </button>
 
         {!status?.configured && (
-          <p className="text-xs text-center text-gray-400">
+          <p className="text-xs text-center text-gray-400 dark:text-gray-500">
             Configure WhatsApp API credentials to enable this feature.
           </p>
         )}
@@ -229,16 +233,16 @@ export default function WhatsApp() {
 
       {/* How it works */}
       <div className="card p-5 space-y-3">
-        <h2 className="text-sm font-semibold text-gray-900">How it works</h2>
-        <ol className="space-y-2 text-sm text-gray-600 list-decimal list-inside">
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">How it works</h2>
+        <ol className="space-y-2 text-sm text-gray-600 dark:text-gray-300 list-decimal list-inside">
           <li>JODL sends a new Purchase Order → you get a WhatsApp message with <strong>Accept</strong> / <strong>Reject</strong> buttons.</li>
           <li>Tap <strong>Accept</strong> to confirm the PO, or <strong>Reject</strong> to decline — directly from WhatsApp.</li>
           <li>Log in to the portal to create and post your invoice against the accepted PO.</li>
           <li>Once the invoice is posted to Zoho Books, you get a confirmation message on WhatsApp.</li>
         </ol>
-        <div className="mt-3 rounded-lg bg-gray-50 border border-gray-200 p-3 text-xs text-gray-500">
+        <div className="mt-3 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 p-3 text-xs text-gray-500 dark:text-gray-400">
           <strong>Webhook URL</strong> (register in Meta Developer Console):{' '}
-          <code className="bg-gray-100 px-1 py-0.5 rounded">
+          <code className="bg-gray-100 dark:bg-gray-600 px-1 py-0.5 rounded">
             https://your-domain.com/api/whatsapp/webhook
           </code>
         </div>

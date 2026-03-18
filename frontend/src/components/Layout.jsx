@@ -8,7 +8,7 @@ export default function Layout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // desktop collapse
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
+    <div className="flex h-screen overflow-hidden bg-gray-50 dark:bg-gray-900">
       {/* Mobile backdrop overlay */}
       {sidebarOpen && (
         <div
@@ -26,10 +26,10 @@ export default function Layout() {
 
       <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         {/* Mobile top bar */}
-        <header className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 shadow-sm lg:hidden">
+        <header className="flex items-center gap-3 border-b border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700 px-4 py-3 shadow-sm lg:hidden">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 transition-colors"
+            className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700 transition-colors"
             aria-label="Open menu"
           >
             <Menu className="h-5 w-5" />
@@ -38,7 +38,7 @@ export default function Layout() {
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-600">
               <Package className="h-4 w-4 text-white" />
             </div>
-            <span className="text-sm font-bold text-gray-900">JODL Seller Portal</span>
+            <span className="text-sm font-bold text-gray-900 dark:text-gray-100">JODL Seller Portal</span>
           </div>
         </header>
 
