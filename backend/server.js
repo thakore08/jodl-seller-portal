@@ -46,6 +46,10 @@ app.listen(PORT, () => {
   console.log(`   Zoho Org ID : ${process.env.ZOHO_ORG_ID || '60032173740'}`);
   console.log(`   Zoho API    : ${process.env.ZOHO_API_BASE || 'https://sandbox.zohoapis.com/books/v3'}`);
   console.log(`   WhatsApp    : ${process.env.WHATSAPP_PHONE_NUMBER_ID ? 'configured' : 'NOT configured'}\n`);
+
+  // Start proactive Zoho token refresh scheduler
+  const zohoService = require('./src/services/zohoBooksService');
+  zohoService.startTokenRefreshScheduler();
 });
 
 module.exports = app;
