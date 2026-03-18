@@ -7,19 +7,21 @@ const axios = require('axios');
 
 class ZohoBooksService {
   constructor() {
-    this.orgId    = process.env.ZOHO_ORG_ID    || '60032173740';
-    this.apiBase  = process.env.ZOHO_API_BASE  || 'https://sandbox.zohoapis.com/books/v3';
-    this.authUrl  = process.env.ZOHO_AUTH_URL  || 'https://accounts.zoho.com/oauth/v2/token';
-    this._token   = null;
-    this._expiry  = null;
+    this.orgId           = process.env.ZOHO_ORG_ID    || '60032173740';
+    this.apiBase         = process.env.ZOHO_API_BASE  || 'https://sandbox.zohoapis.com/books/v3';
+    this.authUrl         = process.env.ZOHO_AUTH_URL  || 'https://accounts.zoho.com/oauth/v2/token';
+    this._token          = null;
+    this._expiry         = null;
+    this._schedulerTimer = null;
   }
 
   // ─── OAuth Token Management ──────────────────────────────────────────────────
-  async getAccessToken() {
-    if (this._token && this._expiry && Date.now() < this._expiry) {
-      return this._token;
-    }
 
+  /**
+   * Unconditionally fetches a fresh access token from Zoho and caches it.
+   * Called by the scheduler and by getAccessToken() when the cache is stale.
+   */
+  async _refreshToken() {
     if (!process.env.ZOHO_REFRESH_TOKEN || !process.env.ZOHO_CLIENT_ID || !process.env.ZOHO_CLIENT_SECRET) {
       throw Object.assign(
         new Error('Zoho credentials are not configured. Please set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN in .env'),
@@ -47,7 +49,53 @@ class ZohoBooksService {
 
     this._token  = response.data.access_token;
     this._expiry = Date.now() + ((response.data.expires_in || 3600) - 300) * 1000;
+    console.log(`[ZohoToken] Access token refreshed. Next expiry: ${new Date(this._expiry).toISOString()}`);
     return this._token;
+  }
+
+  /**
+   * Returns a valid access token. Uses the cached token if still valid,
+   * otherwise falls back to fetching a fresh one.
+   */
+  async getAccessToken() {
+    if (this._token && this._expiry && Date.now() < this._expiry) {
+      return this._token;
+    }
+    return this._refreshToken();
+  }
+
+  /**
+   * Starts a background scheduler that proactively refreshes the Zoho access
+   * token every ZOHO_TOKEN_REFRESH_INTERVAL_MINS minutes (default: 50).
+   * An immediate refresh is performed on startup so the token is ready before
+   * the first API request arrives.
+   *
+   * Safe to call multiple times — clears any existing timer first.
+   */
+  startTokenRefreshScheduler() {
+    if (this._schedulerTimer) {
+      clearInterval(this._schedulerTimer);
+    }
+
+    const intervalMins = parseInt(process.env.ZOHO_TOKEN_REFRESH_INTERVAL_MINS || '50', 10);
+    const intervalMs   = intervalMins * 60 * 1000;
+
+    // Warm up immediately on startup
+    this._refreshToken().catch((err) =>
+      console.error('[ZohoToken] Initial token refresh failed:', err.message)
+    );
+
+    this._schedulerTimer = setInterval(() => {
+      console.log('[ZohoToken] Scheduled refresh triggered.');
+      this._refreshToken().catch((err) =>
+        console.error('[ZohoToken] Scheduled token refresh failed:', err.message)
+      );
+    }, intervalMs);
+
+    // Prevent the timer from blocking process exit
+    if (this._schedulerTimer.unref) this._schedulerTimer.unref();
+
+    console.log(`[ZohoToken] Token refresh scheduler started — interval: ${intervalMins} min(s).`);
   }
 
   async request(method, endpoint, data = null, params = {}) {
