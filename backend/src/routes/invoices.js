@@ -201,6 +201,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     ...(req.file && { attachment_name: req.file.filename }),
   };
 
+  console.log('[Invoice] billPayload →', JSON.stringify(billPayload, null, 2));
   const result = await zoho.createBill(billPayload);
   const createdBillId = result.bill?.bill_id;
 
