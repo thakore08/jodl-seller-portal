@@ -161,6 +161,25 @@ router.post('/', upload.single('file'), async (req, res) => {
     return res.status(400).json({ error: true, message: 'Invalid line_items format. Must be JSON array.' });
   }
 
+  // Enrich parsedLineItems: fill in item_id + account_id from the matched PO line item.
+  // Zoho Books requires account_id (and item_id) to match those on the purchase order.
+  // Match strategy: by item_id first, then fall back to positional index.
+  if (parsedLineItems && po.line_items?.length) {
+    const poByItemId = new Map(
+      po.line_items.filter(i => i.item_id).map(i => [i.item_id, i])
+    );
+    parsedLineItems = parsedLineItems.map((item, idx) => {
+      const poItem = (item.item_id && poByItemId.get(item.item_id))
+                   || po.line_items[idx]
+                   || null;
+      return {
+        ...item,
+        item_id:    item.item_id    || poItem?.item_id    || '',
+        account_id: item.account_id || poItem?.account_id || '',
+      };
+    });
+  }
+
   // Parse tax_lines (IGST / CGST / SGST breakdown)
   let parsedTaxLines = [];
   if (tax_lines) {
@@ -182,7 +201,7 @@ router.post('/', upload.single('file'), async (req, res) => {
   const billPayload = {
     vendor_id:                po.vendor_id,
     date:                     safeDate(date) || today,  // bill / invoice date
-    transaction_posting_date: today,                    // Transaction Posting Date (top-level)
+    transaction_posting_date: today,                    // Transaction Posting Date (native field)
     ...(safeDate(due_date) && { due_date: safeDate(due_date) }),
     bill_number:       bill_number || `INV-${Date.now()}`,
     purchaseorder_ids: [purchaseorder_id],
