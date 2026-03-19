@@ -171,14 +171,18 @@ router.post('/', upload.single('file'), async (req, res) => {
     }
   }
 
+  // Log raw body so we can see exactly what multer parsed
+  console.log('[Invoice] raw body keys:', Object.keys(req.body));
+  console.log('[Invoice] raw date:', JSON.stringify(req.body.date), 'due_date:', JSON.stringify(req.body.due_date));
+
   // Sanitise dates — treat '', 'undefined', null all as "use today"
   const today    = new Date().toISOString().split('T')[0];
   const safeDate = (v) => (v && v.trim() && v !== 'undefined') ? v.trim() : null;
 
   const billPayload = {
     vendor_id:         po.vendor_id,
-    date:              safeDate(date) || today,   // bill / invoice date
-    posting_date:      today,                     // Transaction Posting Date — always today
+    date:                    safeDate(date) || today,  // bill / invoice date
+    transaction_posting_date: today,                   // Transaction Posting Date — always today
     ...(safeDate(due_date) && { due_date: safeDate(due_date) }),
     bill_number:       bill_number || `INV-${Date.now()}`,
     purchaseorder_ids: [purchaseorder_id],
