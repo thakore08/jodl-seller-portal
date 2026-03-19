@@ -5,8 +5,9 @@ import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import { format } from 'date-fns';
 
-// ─── Effective status (same logic as PODetail.jsx) ────────────────────────────
-// local_status checked first — accept/reject are local-only; Zoho stays 'issued'
+// ─── Effective status (kept in sync with PODetail.jsx) ───────────────────────
+// local_status checked first — accept/reject are portal-local; Zoho stays 'issued'.
+// Zoho 'open' maps to 'issued' (not 'accepted') — portal acceptance is always explicit.
 function getEffectiveStatus(po) {
   if (!po) return null;
   if (po.local_status === 'rejected')   return 'rejected';
@@ -14,7 +15,7 @@ function getEffectiveStatus(po) {
   if (po.local_status === 'accepted')   return 'accepted';
   if (po.status === 'cancelled') return 'rejected';
   if (po.status === 'billed')    return 'invoiced';
-  if (po.status === 'open')      return 'accepted';  // legacy fallback
+  if (po.status === 'open')      return 'issued';   // requires explicit portal acceptance
   if (po.status === 'issued')    return 'issued';
   return null;
 }
@@ -22,9 +23,12 @@ function getEffectiveStatus(po) {
 // ─── Status filter tabs ───────────────────────────────────────────────────────
 // zohoStatus: passed as ?status= query to backend (narrows Zoho fetch when possible)
 // effectiveStatuses: client-side filter by getEffectiveStatus(po) result; null = show all
+//
+// NOTE: "Issued" uses zohoStatus:'' (fetch all) because both Zoho 'issued' and
+// Zoho 'open' (without local acceptance) map to effective 'issued'.
 const STATUS_FILTERS = [
   { label: 'All',        zohoStatus: '',       effectiveStatuses: null },
-  { label: 'Issued',     zohoStatus: 'issued', effectiveStatuses: ['issued'] },
+  { label: 'Issued',     zohoStatus: '',       effectiveStatuses: ['issued'] },
   { label: 'Accepted',   zohoStatus: '',       effectiveStatuses: ['accepted'] },
   { label: 'Dispatched', zohoStatus: '',       effectiveStatuses: ['dispatched'] },
   { label: 'Invoiced',   zohoStatus: 'billed', effectiveStatuses: ['invoiced'] },
