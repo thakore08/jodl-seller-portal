@@ -2,11 +2,19 @@ import React, { useState } from 'react';
 import { Pencil, CheckCircle, RotateCcw, ChevronDown, ChevronUp } from 'lucide-react';
 
 // ─── RTD Status computation ───────────────────────────────────────────────────
-function getRTDStatus(itemIndex, rtdData, effectiveStatus) {
-  if (effectiveStatus === 'dispatched' || effectiveStatus === 'invoiced') {
-    const rtd = rtdData?.[itemIndex];
-    if (rtd?.rtd_marked_ready_at) return 'rtd_dispatched';
+// Dispatch status is derived from Zoho's billed_quantity on the line item.
+//   billed_quantity >= quantity  →  fully dispatched
+//   0 < billed_quantity < quantity  →  partially dispatched
+//   0  →  not yet invoiced; fall through to RTD tracking state
+function getRTDStatus(itemIndex, rtdData, lineItem) {
+  const billedQty  = Number(lineItem?.billed_quantity || 0);
+  const orderedQty = Number(lineItem?.quantity        || 0);
+
+  if (billedQty > 0) {
+    if (orderedQty > 0 && billedQty >= orderedQty) return 'rtd_dispatched';
+    return 'rtd_partially_dispatched';
   }
+
   const rtd = rtdData?.[itemIndex];
   if (!rtd) return 'rtd_pending';
   if (rtd.rtd_marked_ready_at) return 'rtd_ready';
@@ -17,17 +25,19 @@ function getRTDStatus(itemIndex, rtdData, effectiveStatus) {
 }
 
 const RTD_STATUS_LABELS = {
-  rtd_pending:    'Pending',
-  rtd_overdue:    'ETA Overdue',
-  rtd_ready:      'Ready to Dispatch',
-  rtd_dispatched: 'Dispatched',
+  rtd_pending:              'Pending',
+  rtd_overdue:              'ETA Overdue',
+  rtd_ready:                'Ready to Dispatch',
+  rtd_partially_dispatched: 'Partially Dispatched',
+  rtd_dispatched:           'Dispatched',
 };
 
 const RTD_STATUS_CLASSES = {
-  rtd_pending:    'bg-gray-100    text-gray-600    dark:bg-gray-700       dark:text-gray-300',
-  rtd_overdue:    'bg-red-100     text-red-700     dark:bg-red-900/30     dark:text-red-400',
-  rtd_ready:      'bg-green-100   text-green-700   dark:bg-green-900/30   dark:text-green-400',
-  rtd_dispatched: 'bg-teal-100    text-teal-700    dark:bg-teal-900/30    dark:text-teal-400',
+  rtd_pending:              'bg-gray-100   text-gray-600   dark:bg-gray-700      dark:text-gray-300',
+  rtd_overdue:              'bg-red-100    text-red-700    dark:bg-red-900/30    dark:text-red-400',
+  rtd_ready:                'bg-green-100  text-green-700  dark:bg-green-900/30  dark:text-green-400',
+  rtd_partially_dispatched: 'bg-blue-100   text-blue-700   dark:bg-blue-900/30   dark:text-blue-400',
+  rtd_dispatched:           'bg-teal-100   text-teal-700   dark:bg-teal-900/30   dark:text-teal-400',
 };
 
 function RTDStatusBadge({ status }) {
@@ -65,15 +75,16 @@ export default function RTDLineItemsPanel({ po, rtdData = {}, onMarkReady, onUnd
   // Revision log popover
   const [showRevisionLog, setShowRevisionLog] = useState(null); // itemIndex
 
-  const effectiveStatus = po?.local_status === 'dispatched' ? 'dispatched'
-    : po?.status === 'billed' ? 'invoiced'
-    : null;
-
-  const readyCount = lineItems.filter((_, idx) => {
-    const rtd = rtdData[idx];
-    return rtd?.rtd_marked_ready_at;
+  // Count items that are ready, partially dispatched, or fully dispatched
+  const readyCount = lineItems.filter((item, idx) => {
+    const s = getRTDStatus(idx, rtdData, item);
+    return s === 'rtd_ready' || s === 'rtd_partially_dispatched' || s === 'rtd_dispatched';
   }).length;
-  const allReady = lineItems.length > 0 && readyCount === lineItems.length;
+  // allReady: every item is either ready-to-dispatch or fully dispatched
+  const allReady = lineItems.length > 0 && lineItems.every((item, idx) => {
+    const s = getRTDStatus(idx, rtdData, item);
+    return s === 'rtd_ready' || s === 'rtd_dispatched';
+  });
 
   const handleMarkReadyConfirm = async (itemIndex) => {
     setConfirmingIndex(null);
@@ -125,7 +136,7 @@ export default function RTDLineItemsPanel({ po, rtdData = {}, onMarkReady, onUnd
           <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
             {lineItems.map((item, idx) => {
               const rtd = rtdData[idx];
-              const status = getRTDStatus(idx, rtdData, effectiveStatus);
+              const status = getRTDStatus(idx, rtdData, item);
               const isConfirming = confirmingIndex === idx;
               const isEditingEta = editingEtaIndex === idx;
               const revisionCount = rtd?.revision_log?.length || 0;
@@ -301,7 +312,7 @@ export default function RTDLineItemsPanel({ po, rtdData = {}, onMarkReady, onUnd
       <ul className="sm:hidden divide-y divide-gray-100 dark:divide-gray-700">
         {lineItems.map((item, idx) => {
           const rtd = rtdData[idx];
-          const status = getRTDStatus(idx, rtdData, effectiveStatus);
+          const status = getRTDStatus(idx, rtdData, item);
           const isConfirming = confirmingIndex === idx;
           const isEditingEta = editingEtaIndex === idx;
           const canAct = !readOnly && (status === 'rtd_pending' || status === 'rtd_overdue');
