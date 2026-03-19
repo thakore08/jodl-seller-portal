@@ -50,3 +50,10 @@
     @apply px-4 py-3 text-sm text-gray-700 dark:text-gray-300;
   }
 }
+
+/* react-pdf text-layer search highlight */
+.pdf-highlight {
+  background: rgba(251, 191, 36, 0.45) !important;
+  border-radius: 2px !important;
+  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.3) !important;
+}
