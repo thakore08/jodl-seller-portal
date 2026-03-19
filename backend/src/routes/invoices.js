@@ -2,8 +2,10 @@ const express  = require('express');
 const multer   = require('multer');
 const path     = require('path');
 const { v4: uuidv4 } = require('uuid');
-const zoho     = require('../services/zohoBooksService');
-const whatsapp = require('../services/whatsappService');
+const zoho           = require('../services/zohoBooksService');
+const whatsapp       = require('../services/whatsappService');
+const pdfExtractor   = require('../services/pdfExtractorService');
+const invoiceMatcher = require('../services/invoiceMatchingService');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
 const router = express.Router();
@@ -28,6 +30,69 @@ const upload = multer({
     const allowed = ['.pdf', '.jpg', '.jpeg', '.png'];
     cb(null, allowed.includes(path.extname(file.originalname).toLowerCase()));
   },
+});
+
+// ─── Multer: memory storage for /extract endpoint (no disk write) ─────────────
+const memUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: (parseInt(process.env.MAX_FILE_SIZE_MB) || 10) * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    cb(null, path.extname(file.originalname).toLowerCase() === '.pdf');
+  },
+});
+
+// ─── POST /api/invoices/extract ───────────────────────────────────────────────
+// Extracts invoice data from a PDF and matches line items against a PO.
+// Body (multipart/form-data): file (PDF) + purchaseorder_id
+router.post('/extract', memUpload.single('file'), async (req, res) => {
+  const { purchaseorder_id } = req.body;
+
+  if (!req.file) {
+    return res.status(400).json({ error: true, message: 'PDF file is required' });
+  }
+  if (!purchaseorder_id) {
+    return res.status(400).json({ error: true, message: 'purchaseorder_id is required' });
+  }
+
+  // Fetch PO to get its line items for matching
+  let po;
+  try {
+    const poData = await zoho.getPurchaseOrderById(purchaseorder_id);
+    po = poData.purchaseorder;
+  } catch {
+    return res.status(404).json({ error: true, message: 'Purchase order not found in Zoho Books' });
+  }
+
+  // Extract text and parse fields from the PDF buffer
+  const extraction = await pdfExtractor.extractFromBuffer(req.file.buffer, req.file.originalname);
+
+  // Scanned PDF — tell the frontend to fall back to manual entry
+  if (extraction.is_scanned) {
+    return res.json({
+      success:         true,
+      is_scanned:      true,
+      message:         'Scanned PDF detected — please use manual entry.',
+      header:          null,
+      line_items:      [],
+      match_results:   [],
+      extraction_log:  extraction.extraction_log,
+    });
+  }
+
+  // Match extracted line items against PO line items
+  const matchResults = invoiceMatcher.matchLineItems(
+    extraction.line_items,
+    po.line_items || []
+  );
+
+  res.json({
+    success:        true,
+    is_scanned:     false,
+    header:         extraction.header,
+    line_items:     extraction.line_items,
+    match_results:  matchResults,
+    extraction_log: extraction.extraction_log,
+  });
 });
 
 // ─── GET /api/invoices ────────────────────────────────────────────────────────
