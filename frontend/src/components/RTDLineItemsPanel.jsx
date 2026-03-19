@@ -115,6 +115,7 @@ export default function RTDLineItemsPanel({ po, rtdData = {}, onMarkReady, onUnd
               <th className="table-th text-right">Qty</th>
               <th className="table-th text-right">Unit</th>
               <th className="table-th text-right">Amount</th>
+              <th className="table-th text-right">Invoiced Qty</th>
               <th className="table-th text-center">Original ETA</th>
               <th className="table-th text-center">Revised ETA</th>
               <th className="table-th text-center">RTD Status</th>
@@ -145,6 +146,12 @@ export default function RTDLineItemsPanel({ po, rtdData = {}, onMarkReady, onUnd
                     <td className="table-td text-right text-gray-500 dark:text-gray-400">{item.unit || '—'}</td>
                     <td className="table-td text-right whitespace-nowrap font-medium">
                       {po.currency_code} {Number(item.item_total || (item.rate * item.quantity) || 0).toLocaleString('en-IN')}
+                    </td>
+                    {/* Invoiced Qty */}
+                    <td className="table-td text-right">
+                      {item.billed_quantity != null && item.billed_quantity > 0
+                        ? <span className="text-green-700 dark:text-green-400 font-medium">{item.billed_quantity}</span>
+                        : <span className="text-gray-400">—</span>}
                     </td>
                     {/* Original ETA */}
                     <td className="table-td text-center text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
@@ -241,7 +248,7 @@ export default function RTDLineItemsPanel({ po, rtdData = {}, onMarkReady, onUnd
                   {/* Inline confirm row */}
                   {isConfirming && (
                     <tr className="bg-green-50 dark:bg-green-900/10">
-                      <td colSpan={readOnly ? 8 : 9} className="px-4 py-3">
+                      <td colSpan={readOnly ? 9 : 10} className="px-4 py-3">
                         <div className="flex flex-wrap items-center gap-3 text-sm">
                           <span className="text-gray-700 dark:text-gray-200">
                             Confirm: Mark <strong>{item.name}</strong> as Ready to Dispatch?
@@ -270,7 +277,7 @@ export default function RTDLineItemsPanel({ po, rtdData = {}, onMarkReady, onUnd
                   {/* Revision log expand row */}
                   {showRevisionLog === idx && rtd?.revision_log?.length > 0 && (
                     <tr>
-                      <td colSpan={readOnly ? 8 : 9} className="px-4 py-2 bg-amber-50 dark:bg-amber-900/10">
+                      <td colSpan={readOnly ? 9 : 10} className="px-4 py-2 bg-amber-50 dark:bg-amber-900/10">
                         <p className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">ETA Revision History</p>
                         <ul className="space-y-0.5">
                           {rtd.revision_log.map((rev, ri) => (
@@ -318,6 +325,9 @@ export default function RTDLineItemsPanel({ po, rtdData = {}, onMarkReady, onUnd
                 )}
                 {rtd?.rtd_eta_revised && (
                   <span>Revised ETA: <span className="font-medium text-amber-600 dark:text-amber-400">{fmtDate(rtd.rtd_eta_revised)}</span></span>
+                )}
+                {item.billed_quantity > 0 && (
+                  <span>Invoiced: <span className="font-medium text-green-700 dark:text-green-400">{item.billed_quantity}</span></span>
                 )}
               </div>
 
