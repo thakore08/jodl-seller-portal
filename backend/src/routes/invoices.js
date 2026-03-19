@@ -171,10 +171,14 @@ router.post('/', upload.single('file'), async (req, res) => {
     }
   }
 
+  // Sanitise dates — treat '', 'undefined', null all as "use today"
+  const today    = new Date().toISOString().split('T')[0];
+  const safeDate = (v) => (v && v.trim() && v !== 'undefined') ? v.trim() : null;
+
   const billPayload = {
     vendor_id:         po.vendor_id,
-    date:              date || new Date().toISOString().split('T')[0],
-    due_date:          due_date || '',
+    date:              safeDate(date) || today,
+    ...(safeDate(due_date) && { due_date: safeDate(due_date) }),
     bill_number:       bill_number || `INV-${Date.now()}`,
     purchaseorder_ids: [purchaseorder_id],
     line_items:        parsedLineItems || po.line_items?.map(item => ({
