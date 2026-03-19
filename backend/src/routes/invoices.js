@@ -180,9 +180,9 @@ router.post('/', upload.single('file'), async (req, res) => {
   const safeDate = (v) => (v && v.trim() && v !== 'undefined') ? v.trim() : null;
 
   const billPayload = {
-    vendor_id:         po.vendor_id,
-    date:                    safeDate(date) || today,  // bill / invoice date
-    transaction_posting_date: today,                   // Transaction Posting Date — always today
+    vendor_id:                po.vendor_id,
+    date:                     safeDate(date) || today,  // bill / invoice date
+    transaction_posting_date: today,                    // Transaction Posting Date (top-level)
     ...(safeDate(due_date) && { due_date: safeDate(due_date) }),
     bill_number:       bill_number || `INV-${Date.now()}`,
     purchaseorder_ids: [purchaseorder_id],
@@ -195,6 +195,11 @@ router.post('/', upload.single('file'), async (req, res) => {
       account_id:  item.account_id,
     })) || [],
     notes,
+    // Pass Transaction Posting Date via custom_fields too (required when feature is
+    // enabled in Zoho Books org via Settings > Purchases > Bills > Field Customisation)
+    custom_fields: [
+      { label: 'Transaction Posting Date', value: today },
+    ],
     // Tax lines (IGST, CGST, SGST) mapped to Zoho's taxes structure
     ...(parsedTaxLines.length > 0 && {
       taxes: parsedTaxLines.map(t => ({
