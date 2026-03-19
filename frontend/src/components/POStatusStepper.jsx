@@ -5,20 +5,20 @@ import { Check } from 'lucide-react';
  * POStatusStepper — horizontal (desktop) / vertical (mobile) step progress.
  *
  * Props:
- *   effectiveStatus — one of: 'issued' | 'accepted' | 'in_production' | 'dispatched' | 'closed' | 'cancelled'
+ *   effectiveStatus — one of: 'issued' | 'accepted' | 'dispatched' | 'invoiced' | 'closed' | 'rejected'
  *
  * The stepper renders 5 linear steps:
- *   Issued → Accepted → In Production → Dispatched → Closed
+ *   Issued → Accepted → Dispatched → Invoiced → Closed
  *
- * If status is 'cancelled', the stepper shows a standalone cancelled state.
+ * If status is 'rejected', the stepper shows a standalone rejected state.
  */
 
 const STEPS = [
-  { key: 'issued',        label: 'Issued' },
-  { key: 'accepted',      label: 'Accepted' },
-  { key: 'in_production', label: 'In Production' },
-  { key: 'dispatched',    label: 'Dispatched' },
-  { key: 'closed',        label: 'Closed' },
+  { key: 'issued',     label: 'Issued'     },
+  { key: 'accepted',   label: 'Accepted'   },
+  { key: 'dispatched', label: 'Dispatched' },
+  { key: 'invoiced',   label: 'Invoiced'   },
+  { key: 'closed',     label: 'Closed'     },
 ];
 
 const STEP_ORDER = STEPS.map(s => s.key);
@@ -30,11 +30,11 @@ function getActiveIndex(effectiveStatus) {
 }
 
 export default function POStatusStepper({ effectiveStatus }) {
-  if (effectiveStatus === 'cancelled') {
+  if (effectiveStatus === 'rejected' || effectiveStatus === 'cancelled') {
     return (
       <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400 font-medium">
         <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border-2 border-red-400 dark:border-red-600 text-red-500 dark:text-red-400 text-xs">✕</span>
-        Order Cancelled
+        Order Rejected
       </div>
     );
   }
