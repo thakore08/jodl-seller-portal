@@ -33,8 +33,9 @@ function formatAddress(addr) {
 // Zoho status model:  draft / issued / open / billed / cancelled
 // Local augmentation: local_status = 'accepted' | 'rejected' | 'dispatched'
 //
-// IMPORTANT: local_status is checked FIRST because accept/reject are local-only
-// — Zoho status stays 'issued' after local acceptance/rejection.
+// RULE: local_status is ALWAYS checked first.
+// Zoho 'open' is intentionally mapped to 'issued' (not 'accepted') because
+// portal acceptance is explicit and separate from Zoho's own status transitions.
 function getEffectiveStatus(po) {
   if (!po) return null;
   if (po.local_status === 'rejected')   return 'rejected';
@@ -42,7 +43,7 @@ function getEffectiveStatus(po) {
   if (po.local_status === 'accepted')   return 'accepted';
   if (po.status === 'cancelled') return 'rejected';
   if (po.status === 'billed')    return 'invoiced';
-  if (po.status === 'open')      return 'accepted';  // legacy fallback
+  if (po.status === 'open')      return 'issued';   // requires explicit portal acceptance
   if (po.status === 'issued')    return 'issued';
   return null; // draft or unknown — not synced
 }
