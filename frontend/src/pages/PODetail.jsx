@@ -772,6 +772,90 @@ function RejectModal({ onClose, onReject }) {
   );
 }
 
+// ─── Accept Modal ─────────────────────────────────────────────────────────────
+function AcceptModal({ po, onClose, onAccept }) {
+  const tomorrow = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0];
+  })();
+
+  const [dates, setDates] = useState(
+    (po.line_items || []).map(item => ({
+      item_id:       item.item_id,
+      name:          item.name || item.description || '',
+      quantity:      item.quantity,
+      unit:          item.unit || '',
+      expected_date: tomorrow,
+    }))
+  );
+  const [loading, setLoading] = useState(false);
+
+  const updateDate = (idx, value) =>
+    setDates(prev => prev.map((d, i) => i === idx ? { ...d, expected_date: value } : d));
+
+  const handleAccept = async () => {
+    setLoading(true);
+    await onAccept(dates);
+    setLoading(false);
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        Set the expected delivery date for each line item, then confirm acceptance.
+      </p>
+
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 dark:bg-gray-700/50">
+            <tr>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Item</th>
+              <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400">Qty</th>
+              <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 w-40">Expected Delivery</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+            {dates.map((item, idx) => (
+              <tr key={idx}>
+                <td className="px-3 py-2.5">
+                  <p className="font-medium text-gray-800 dark:text-gray-200 leading-snug">{item.name || `Item ${idx + 1}`}</p>
+                </td>
+                <td className="px-3 py-2.5 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                  {item.quantity} {item.unit}
+                </td>
+                <td className="px-3 py-2.5">
+                  <input
+                    type="date"
+                    className="input py-1 text-xs text-right ml-auto w-full"
+                    value={item.expected_date}
+                    min={tomorrow}
+                    onChange={e => updateDate(idx, e.target.value)}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex gap-3 pt-1">
+        <button onClick={onClose} className="btn-outline flex-1">Cancel</button>
+        <button onClick={handleAccept} disabled={loading} className="btn-success flex-1">
+          {loading ? (
+            <span className="flex items-center gap-2">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              Accepting…
+            </span>
+          ) : (
+            <><CheckCircle className="h-4 w-4" /> Confirm & Accept PO</>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main PO Detail page ─────────────────────────────────────────────────────
 export default function PODetail() {
   const { id }       = useParams();
@@ -782,6 +866,7 @@ export default function PODetail() {
   const [error,       setError]       = useState('');
   const [actionMsg,   setActionMsg]   = useState('');
   const [showInvoice, setShowInvoice] = useState(false);
+  const [showAccept,  setShowAccept]  = useState(false);
   const [showReject,  setShowReject]  = useState(false);
   const [acting,      setActing]      = useState(false);
 
@@ -812,7 +897,13 @@ export default function PODetail() {
     }
   };
 
-  const handleAccept         = () => doAction(() => api.post(`/purchase-orders/${id}/accept`),           'Purchase order accepted successfully.');
+  const handleAccept = async (lineItemDates) => {
+    setShowAccept(false);
+    await doAction(
+      () => api.post(`/purchase-orders/${id}/accept`, { line_item_delivery_dates: lineItemDates }),
+      'Purchase order accepted. You can now mark it as In Production.'
+    );
+  };
   const handleMarkInProd     = () => doAction(() => api.post(`/purchase-orders/${id}/mark-in-production`), 'Marked as In Production.');
   const handleMarkDispatched = () => doAction(() => api.post(`/purchase-orders/${id}/mark-dispatched`),    'Marked as Dispatched.');
 
@@ -893,7 +984,7 @@ export default function PODetail() {
           <div className="flex flex-wrap gap-2">
             {canAcceptReject && (
               <>
-                <button onClick={handleAccept} disabled={acting} className="btn-success">
+                <button onClick={() => setShowAccept(true)} disabled={acting} className="btn-success">
                   <CheckCircle className="h-4 w-4" />
                   {acting ? 'Processing…' : 'Accept PO'}
                 </button>
@@ -1079,6 +1170,20 @@ export default function PODetail() {
             }}
           />
         </div>
+      </Modal>
+
+      {/* Accept Modal */}
+      <Modal
+        open={showAccept}
+        onClose={() => setShowAccept(false)}
+        title={`Accept PO — ${po.purchaseorder_number}`}
+        maxWidth="max-w-xl"
+      >
+        <AcceptModal
+          po={po}
+          onClose={() => setShowAccept(false)}
+          onAccept={handleAccept}
+        />
       </Modal>
 
       {/* Reject Modal */}
