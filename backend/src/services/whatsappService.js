@@ -114,6 +114,34 @@ class WhatsAppService {
     return this.sendMessage(payload);
   }
 
+  // ─── All Items Ready to Dispatch (admin notification) ────────────────────────
+  async sendAllItemsReady({ to, poNumber, lineItemCount, sellerName, adminPoUrl }) {
+    const payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'text',
+      text: {
+        body: `📦 *All items ready for dispatch*\n\nPO *${poNumber}* — all ${lineItemCount} line item${lineItemCount !== 1 ? 's' : ''} have been marked Ready to Dispatch by *${sellerName}*. Please issue DRI.\n\nView: ${adminPoUrl}`,
+      },
+    };
+    return this.sendMessage(payload);
+  }
+
+  // ─── RTD ETA Revised (admin notification) ────────────────────────────────────
+  async sendRTDEtaRevised({ to, poNumber, sellerName, itemDescription, originalEta, newEta, adminPoUrl }) {
+    const payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'text',
+      text: {
+        body: `⚠️ *RTD ETA Revised*\n\nPO *${poNumber}* — *${sellerName}* has revised the Ready to Dispatch ETA for ${itemDescription}.\nOriginal: ${originalEta} → Revised: ${newEta}\n\nView: ${adminPoUrl}`,
+      },
+    };
+    return this.sendMessage(payload);
+  }
+
   // ─── Generic Text Message ────────────────────────────────────────────────────
   async sendTextMessage(to, message) {
     return this.sendMessage({

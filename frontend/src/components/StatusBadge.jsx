@@ -12,11 +12,18 @@ const STATUS_STYLES = {
   accepted:       'bg-green-100   text-green-700   dark:bg-green-900/30   dark:text-green-400',
   sent:           'bg-green-100   text-green-700   dark:bg-green-900/30   dark:text-green-400',
 
-  // ── Extended PO local statuses (1.3) ──────────────────────────────────────
+  // ── Extended PO local statuses ────────────────────────────────────────────
   in_production:  'bg-purple-100  text-purple-800  dark:bg-purple-900/30  dark:text-purple-400',
   dispatched:     'bg-indigo-100  text-indigo-800  dark:bg-indigo-900/30  dark:text-indigo-400',
+  invoiced:       'bg-blue-100    text-blue-800    dark:bg-blue-900/30    dark:text-blue-400',
   closed:         'bg-gray-200    text-gray-600    dark:bg-gray-700       dark:text-gray-400',
   issued:         'bg-gray-100    text-gray-700    dark:bg-gray-700       dark:text-gray-300',
+
+  // ── RTD (Ready-to-Dispatch) line item statuses ────────────────────────────
+  rtd_pending:    'bg-gray-100    text-gray-600    dark:bg-gray-700       dark:text-gray-300',
+  rtd_overdue:    'bg-red-100     text-red-700     dark:bg-red-900/30     dark:text-red-400',
+  rtd_ready:      'bg-green-100   text-green-700   dark:bg-green-900/30   dark:text-green-400',
+  rtd_dispatched: 'bg-teal-100    text-teal-700    dark:bg-teal-900/30    dark:text-teal-400',
 
   // ── Payment / invoice statuses (1.5) ──────────────────────────────────────
   disputed:       'bg-orange-100  text-orange-800  dark:bg-orange-900/30  dark:text-orange-400',
