@@ -6,24 +6,26 @@ import StatusBadge from '../components/StatusBadge';
 import { format } from 'date-fns';
 
 const STATUS_FILTERS = [
-  { label: 'All',       value: '' },
-  { label: 'Open',      value: 'open' },
-  { label: 'Billed',    value: 'billed' },
-  { label: 'Cancelled', value: 'cancelled' },
-  { label: 'Draft',     value: 'draft' },
+  { label: 'All',           value: '',              localFilter: null },
+  { label: 'Open',          value: 'open',          localFilter: null },
+  { label: 'In Production', value: 'open',          localFilter: 'in_production' },
+  { label: 'Dispatched',    value: 'open',          localFilter: 'dispatched' },
+  { label: 'Billed',        value: 'billed',        localFilter: null },
+  { label: 'Cancelled',     value: 'cancelled',     localFilter: null },
+  { label: 'Draft',         value: 'draft',         localFilter: null },
 ];
 
 export default function PurchaseOrders() {
-  const [pos,     setPOs]     = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState('');
-  const [status,  setStatus]  = useState('');
-  const [search,  setSearch]  = useState('');
+  const [pos,         setPOs]         = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState('');
+  const [activeFilter, setActiveFilter] = useState(STATUS_FILTERS[0]);
+  const [search,      setSearch]      = useState('');
 
   const loadPOs = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const params = status ? `?status=${status}` : '';
+      const params = activeFilter.value ? `?status=${activeFilter.value}` : '';
       const { data } = await api.get(`/purchase-orders${params}`);
       setPOs(data.purchaseorders || []);
     } catch (err) {
@@ -31,15 +33,24 @@ export default function PurchaseOrders() {
     } finally {
       setLoading(false);
     }
-  }, [status]);
+  }, [activeFilter.value]);
 
   useEffect(() => { loadPOs(); }, [loadPOs]);
 
-  const filtered = pos.filter(po =>
-    !search ||
-    po.purchaseorder_number?.toLowerCase().includes(search.toLowerCase()) ||
-    po.vendor_name?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = pos.filter(po => {
+    // Client-side local_status filter (for In Production / Dispatched tabs)
+    if (activeFilter.localFilter) {
+      if (po.local_status !== activeFilter.localFilter) return false;
+    } else if (activeFilter.value === 'open') {
+      // "Open" tab: exclude locally-overridden ones (they appear in their own tabs)
+      // Actually show all open POs including those with local_status for the main Open tab
+    }
+    if (!search) return true;
+    return (
+      po.purchaseorder_number?.toLowerCase().includes(search.toLowerCase()) ||
+      po.vendor_name?.toLowerCase().includes(search.toLowerCase())
+    );
+  });
 
   return (
     <div className="p-6 space-y-5">
@@ -72,21 +83,24 @@ export default function PurchaseOrders() {
         </div>
 
         {/* Status tabs */}
-        <div className="flex items-center gap-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
+        <div className="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
           <Filter className="ml-1 h-4 w-4 text-gray-400 dark:text-gray-500 shrink-0" />
-          {STATUS_FILTERS.map(f => (
-            <button
-              key={f.value}
-              onClick={() => setStatus(f.value)}
-              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                status === f.value
-                  ? 'bg-brand-600 text-white'
-                  : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
+          {STATUS_FILTERS.map(f => {
+            const isActive = activeFilter.label === f.label;
+            return (
+              <button
+                key={f.label}
+                onClick={() => setActiveFilter(f)}
+                className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                  isActive
+                    ? 'bg-brand-600 text-white'
+                    : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
+                }`}
+              >
+                {f.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -111,7 +125,7 @@ export default function PurchaseOrders() {
               <li key={po.purchaseorder_id} className="card p-4">
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <p className="text-sm font-bold text-brand-600 dark:text-brand-400">{po.purchaseorder_number}</p>
-                  <StatusBadge status={po.status} />
+                  <StatusBadge status={po.local_status || po.status} />
                 </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-3">
                   <span>Date: <span className="text-gray-700 dark:text-gray-300">{po.date ? format(new Date(po.date), 'dd MMM yyyy') : '—'}</span></span>
@@ -157,7 +171,7 @@ export default function PurchaseOrders() {
                       <td className="table-td font-semibold whitespace-nowrap">
                         {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
                       </td>
-                      <td className="table-td"><StatusBadge status={po.status} /></td>
+                      <td className="table-td"><StatusBadge status={po.local_status || po.status} /></td>
                       <td className="table-td">
                         <Link to={`/purchase-orders/${po.purchaseorder_id}`} className="btn-outline px-3 py-1 text-xs">
                           View

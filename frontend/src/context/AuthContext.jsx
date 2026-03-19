@@ -4,7 +4,7 @@ import api from '../services/api';
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [seller, setSeller] = useState(null);
+  const [seller,  setSeller]  = useState(null);
   const [loading, setLoading] = useState(true);
 
   const loadUser = useCallback(async () => {
@@ -35,8 +35,15 @@ export function AuthProvider({ children }) {
     setSeller(null);
   };
 
+  /**
+   * hasRole — returns true if the current seller has any of the given roles.
+   * Usage: hasRole('seller_admin', 'finance_user')
+   * Roles: 'seller_admin' | 'operations_user' | 'finance_user'
+   */
+  const hasRole = (...roles) => roles.includes(seller?.role);
+
   return (
-    <AuthContext.Provider value={{ seller, loading, login, logout, refresh: loadUser }}>
+    <AuthContext.Provider value={{ seller, loading, login, logout, refresh: loadUser, hasRole }}>
       {children}
     </AuthContext.Provider>
   );

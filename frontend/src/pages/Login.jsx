@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Package, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -62,7 +62,15 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="label">Password</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="label mb-0">Password</label>
+                <Link
+                  to="/forgot-password"
+                  className="text-xs text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <input
                   type={show ? 'text' : 'password'}
@@ -93,7 +101,7 @@ export default function Login() {
           </form>
 
           <p className="mt-4 text-center text-xs text-gray-400 dark:text-gray-500">
-            Demo: seller@demo.com / password123
+            Contact your administrator for access credentials.
           </p>
         </div>
       </div>

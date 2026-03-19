@@ -191,6 +191,38 @@ class ZohoBooksService {
     return this.request('GET', `/contacts/${id}`);
   }
 
+  // ─── Bill Payments ───────────────────────────────────────────────────────────
+  /**
+   * Get all payment records applied to a specific bill (vendor invoice).
+   * Returns: { vendorpayments: [...] }
+   */
+  async getBillPayments(billId) {
+    return this.request('GET', `/bills/${billId}/payments`);
+  }
+
+  /**
+   * Get all vendor payment records for a vendor.
+   * @param {string} vendorId - Zoho Books vendor/contact ID
+   * @param {Object} filters  - e.g. { date_start, date_end }
+   * Returns: { vendorpayments: [...] }
+   */
+  async getVendorPayments(vendorId, filters = {}) {
+    return this.request('GET', '/vendorpayments', null, {
+      vendor_id: vendorId,
+      ...filters,
+    });
+  }
+
+  /**
+   * Update a bill's custom fields (e.g. store PO reference).
+   * customFields: [{ label: 'PO Reference', value: 'PO-001' }]
+   */
+  async updateBillCustomField(billId, poId) {
+    return this.request('PUT', `/bills/${billId}`, {
+      custom_fields: [{ label: 'PO Reference', value: poId }],
+    });
+  }
+
   // ─── Dashboard Stats ─────────────────────────────────────────────────────────
   async getPOStats(vendorId) {
     const [open, billed, cancelled] = await Promise.allSettled([

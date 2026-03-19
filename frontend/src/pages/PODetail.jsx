@@ -2,12 +2,26 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle, XCircle, FileText, Send,
-  Calendar, Package, RefreshCw, AlertTriangle,
+  Calendar, Package, AlertTriangle, Truck, Factory,
+  MapPin, User as UserIcon,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import Modal from '../components/Modal';
+import POStatusStepper from '../components/POStatusStepper';
+import { useAuth } from '../context/AuthContext';
+
+// ─── Helper: derive stepper status from PO ───────────────────────────────────
+function getEffectiveStatus(po) {
+  if (!po) return 'issued';
+  if (po.status === 'cancelled') return 'cancelled';
+  if (po.status === 'billed')    return 'closed';
+  if (po.local_status === 'dispatched')   return 'dispatched';
+  if (po.local_status === 'in_production') return 'in_production';
+  if (po.status === 'open')      return 'accepted';
+  return 'issued'; // draft or anything else
+}
 
 // ─── Invoice Creation Form ───────────────────────────────────────────────────
 function InvoiceForm({ po, onClose, onSuccess }) {
@@ -25,6 +39,12 @@ function InvoiceForm({ po, onClose, onSuccess }) {
       account_id:  i.account_id || '',
     })),
   });
+  // Tax breakup
+  const [taxes, setTaxes] = useState({
+    igst_pct: '', igst_amt: '',
+    cgst_pct: '', cgst_amt: '',
+    sgst_pct: '', sgst_amt: '',
+  });
   const [file,    setFile]    = useState(null);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState('');
@@ -41,6 +61,23 @@ function InvoiceForm({ po, onClose, onSuccess }) {
     (sum, i) => sum + (parseFloat(i.rate) || 0) * (parseFloat(i.quantity) || 0), 0
   );
 
+  const totalTax =
+    (parseFloat(taxes.igst_amt) || 0) +
+    (parseFloat(taxes.cgst_amt) || 0) +
+    (parseFloat(taxes.sgst_amt) || 0);
+
+  // Build tax_lines array for backend
+  const buildTaxLines = () => {
+    const lines = [];
+    if (parseFloat(taxes.igst_amt) > 0)
+      lines.push({ tax_name: 'IGST', tax_percentage: parseFloat(taxes.igst_pct) || 0, tax_amount: parseFloat(taxes.igst_amt) });
+    if (parseFloat(taxes.cgst_amt) > 0)
+      lines.push({ tax_name: 'CGST', tax_percentage: parseFloat(taxes.cgst_pct) || 0, tax_amount: parseFloat(taxes.cgst_amt) });
+    if (parseFloat(taxes.sgst_amt) > 0)
+      lines.push({ tax_name: 'SGST', tax_percentage: parseFloat(taxes.sgst_pct) || 0, tax_amount: parseFloat(taxes.sgst_amt) });
+    return lines;
+  };
+
   const handleSubmit = async e => {
     e.preventDefault();
     setLoading(true); setError('');
@@ -52,6 +89,7 @@ function InvoiceForm({ po, onClose, onSuccess }) {
     formData.append('due_date',         form.due_date);
     formData.append('notes',            form.notes);
     formData.append('line_items',       JSON.stringify(form.line_items));
+    formData.append('tax_lines',        JSON.stringify(buildTaxLines()));
     if (file) formData.append('file', file);
 
     try {
@@ -66,6 +104,8 @@ function InvoiceForm({ po, onClose, onSuccess }) {
     }
   };
 
+  const updateTax = (field, value) => setTaxes(t => ({ ...t, [field]: value }));
+
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       {error && (
@@ -74,6 +114,11 @@ function InvoiceForm({ po, onClose, onSuccess }) {
           {error}
         </div>
       )}
+
+      {/* PO reference note */}
+      <p className="text-xs text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2">
+        PO Reference <span className="font-semibold text-gray-600 dark:text-gray-300">{po.purchaseorder_number}</span> will be stored in Zoho Books on the bill.
+      </p>
 
       <div className="grid grid-cols-2 gap-4">
         <div>
@@ -136,9 +181,64 @@ function InvoiceForm({ po, onClose, onSuccess }) {
             </tbody>
             <tfoot className="bg-gray-50 dark:bg-gray-700/50 border-t border-gray-200 dark:border-gray-700">
               <tr>
-                <td colSpan={3} className="px-3 py-2 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">Total</td>
+                <td colSpan={3} className="px-3 py-2 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">Subtotal</td>
                 <td className="px-3 py-2 text-right text-sm font-bold text-gray-900 dark:text-gray-100">
                   {po.currency_code} {lineTotal.toLocaleString('en-IN')}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      {/* Tax Breakup */}
+      <div>
+        <label className="label">Tax Breakup (optional)</label>
+        <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 dark:bg-gray-700/50">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Tax Type</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400">Rate (%)</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400">Amount ({po.currency_code})</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+              {[
+                { label: 'IGST', pctKey: 'igst_pct', amtKey: 'igst_amt' },
+                { label: 'CGST', pctKey: 'cgst_pct', amtKey: 'cgst_amt' },
+                { label: 'SGST', pctKey: 'sgst_pct', amtKey: 'sgst_amt' },
+              ].map(({ label, pctKey, amtKey }) => (
+                <tr key={label}>
+                  <td className="px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300">{label}</td>
+                  <td className="px-3 py-2">
+                    <input type="number" min="0" max="100" step="0.01"
+                      className="input py-1 text-xs text-right w-20 ml-auto"
+                      placeholder="0"
+                      value={taxes[pctKey]}
+                      onChange={e => updateTax(pctKey, e.target.value)} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <input type="number" min="0" step="0.01"
+                      className="input py-1 text-xs text-right w-24 ml-auto"
+                      placeholder="0.00"
+                      value={taxes[amtKey]}
+                      onChange={e => updateTax(amtKey, e.target.value)} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="bg-gray-50 dark:bg-gray-700/50 border-t border-gray-200 dark:border-gray-700">
+              <tr>
+                <td colSpan={2} className="px-3 py-2 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">Total Tax</td>
+                <td className="px-3 py-2 text-right text-sm font-bold text-gray-900 dark:text-gray-100">
+                  {po.currency_code} {totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </td>
+              </tr>
+              <tr className="border-t border-gray-200 dark:border-gray-600">
+                <td colSpan={2} className="px-3 py-2 text-right text-xs font-semibold text-gray-900 dark:text-gray-100">Grand Total</td>
+                <td className="px-3 py-2 text-right text-sm font-bold text-brand-600 dark:text-brand-400">
+                  {po.currency_code} {(lineTotal + totalTax).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </td>
               </tr>
             </tfoot>
@@ -211,10 +311,11 @@ function RejectModal({ onClose, onReject }) {
 export default function PODetail() {
   const { id }       = useParams();
   const navigate     = useNavigate();
-  const [po,        setPO]        = useState(null);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState('');
-  const [actionMsg, setActionMsg] = useState('');
+  const { hasRole }  = useAuth();
+  const [po,          setPO]          = useState(null);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState('');
+  const [actionMsg,   setActionMsg]   = useState('');
   const [showInvoice, setShowInvoice] = useState(false);
   const [showReject,  setShowReject]  = useState(false);
   const [acting,      setActing]      = useState(false);
@@ -233,18 +334,22 @@ export default function PODetail() {
 
   useEffect(() => { loadPO(); }, [id]);
 
-  const handleAccept = async () => {
+  const doAction = async (fn, successMsg) => {
     setActing(true); setError(''); setActionMsg('');
     try {
-      await api.post(`/purchase-orders/${id}/accept`);
-      setActionMsg('Purchase order accepted successfully.');
+      await fn();
+      setActionMsg(successMsg);
       await loadPO();
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to accept PO');
+      setError(err.response?.data?.message || 'Action failed');
     } finally {
       setActing(false);
     }
   };
+
+  const handleAccept         = () => doAction(() => api.post(`/purchase-orders/${id}/accept`),           'Purchase order accepted successfully.');
+  const handleMarkInProd     = () => doAction(() => api.post(`/purchase-orders/${id}/mark-in-production`), 'Marked as In Production.');
+  const handleMarkDispatched = () => doAction(() => api.post(`/purchase-orders/${id}/mark-dispatched`),    'Marked as Dispatched.');
 
   const handleReject = async reason => {
     setActing(true); setError(''); setActionMsg('');
@@ -260,7 +365,15 @@ export default function PODetail() {
     }
   };
 
-  const canAct = po && (po.status === 'open' || po.status === 'draft');
+  const effectiveStatus = getEffectiveStatus(po);
+  const isOpsRole       = hasRole('seller_admin', 'operations_user');
+  const isFinanceRole   = hasRole('seller_admin', 'finance_user');
+
+  // Action visibility
+  const canAcceptReject  = isOpsRole && po && (po.status === 'open' || po.status === 'draft');
+  const canMarkInProd    = isOpsRole && po && po.status === 'open' && !po.local_status;
+  const canMarkDisp      = isOpsRole && po && po.status === 'open' && po.local_status === 'in_production';
+  const canCreateInvoice = isFinanceRole && po && po.status === 'open';
 
   if (loading) {
     return (
@@ -287,7 +400,7 @@ export default function PODetail() {
         <ArrowLeft className="h-4 w-4" /> Back to Purchase Orders
       </Link>
 
-      {/* Action messages */}
+      {/* Feedback */}
       {actionMsg && (
         <div className="rounded-lg bg-green-50 border border-green-200 p-3 text-sm text-green-700 flex items-center gap-2 dark:bg-green-900/20 dark:border-green-800 dark:text-green-400">
           <CheckCircle className="h-4 w-4 shrink-0" /> {actionMsg}
@@ -298,52 +411,57 @@ export default function PODetail() {
       )}
 
       {/* Header card */}
-      <div className="card p-5">
+      <div className="card p-5 space-y-4">
+        {/* Title row */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-3 mb-1">
               <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">{po.purchaseorder_number}</h1>
-              <StatusBadge status={po.status} />
+              <StatusBadge status={effectiveStatus} />
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               Issued by <span className="font-medium text-gray-700 dark:text-gray-300">{po.vendor_name || 'JODL'}</span>
             </p>
           </div>
 
-          {/* Action buttons */}
+          {/* Action buttons — role-gated */}
           <div className="flex flex-wrap gap-2">
-            {canAct && (
+            {canAcceptReject && (
               <>
-                <button
-                  onClick={handleAccept}
-                  disabled={acting}
-                  className="btn-success"
-                >
+                <button onClick={handleAccept} disabled={acting} className="btn-success">
                   <CheckCircle className="h-4 w-4" />
                   {acting ? 'Processing…' : 'Accept PO'}
                 </button>
-                <button
-                  onClick={() => setShowReject(true)}
-                  disabled={acting}
-                  className="btn-danger"
-                >
+                <button onClick={() => setShowReject(true)} disabled={acting} className="btn-danger">
                   <XCircle className="h-4 w-4" /> Reject PO
                 </button>
               </>
             )}
-            {po.status === 'open' && (
-              <button
-                onClick={() => setShowInvoice(true)}
-                className="btn-primary"
-              >
+            {canMarkInProd && (
+              <button onClick={handleMarkInProd} disabled={acting} className="btn-outline">
+                <Factory className="h-4 w-4" /> Mark In Production
+              </button>
+            )}
+            {canMarkDisp && (
+              <button onClick={handleMarkDispatched} disabled={acting} className="btn-outline">
+                <Truck className="h-4 w-4" /> Mark Dispatched
+              </button>
+            )}
+            {canCreateInvoice && (
+              <button onClick={() => setShowInvoice(true)} className="btn-primary">
                 <FileText className="h-4 w-4" /> Create Invoice
               </button>
             )}
           </div>
         </div>
 
+        {/* Status Stepper */}
+        <div className="pt-2 pb-1">
+          <POStatusStepper effectiveStatus={effectiveStatus} />
+        </div>
+
         {/* Meta info */}
-        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 border-t border-gray-100 dark:border-gray-700 pt-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 border-t border-gray-100 dark:border-gray-700 pt-4">
           <div className="flex items-center gap-2 text-sm">
             <Calendar className="h-4 w-4 text-gray-400 dark:text-gray-500" />
             <div>
@@ -371,8 +489,32 @@ export default function PODetail() {
           </div>
         </div>
 
+        {/* Buyer / Delivery info */}
+        {(po.customer_name || po.delivery_address) && (
+          <div className="border-t border-gray-100 dark:border-gray-700 pt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {po.customer_name && (
+              <div className="flex items-start gap-2 text-sm">
+                <UserIcon className="h-4 w-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">Buyer</p>
+                  <p className="font-medium text-gray-900 dark:text-gray-100">{po.customer_name}</p>
+                </div>
+              </div>
+            )}
+            {po.delivery_address && (
+              <div className="flex items-start gap-2 text-sm">
+                <MapPin className="h-4 w-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">Delivery Address</p>
+                  <p className="font-medium text-gray-900 dark:text-gray-100 whitespace-pre-line">{po.delivery_address}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {po.notes && (
-          <div className="mt-4 border-t border-gray-100 dark:border-gray-700 pt-4">
+          <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
             <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">Notes</p>
             <p className="text-sm text-gray-600 dark:text-gray-300">{po.notes}</p>
           </div>
