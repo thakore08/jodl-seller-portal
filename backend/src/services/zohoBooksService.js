@@ -117,8 +117,10 @@ class ZohoBooksService {
       const response = await axios(config);
       return response.data;
     } catch (err) {
-      const msg = err.response?.data?.message || err.message;
+      const msg    = err.response?.data?.message || err.message;
+      const code   = err.response?.data?.code;
       const status = err.response?.status || 500;
+      console.error('[Zoho] API error', status, code, msg, JSON.stringify(err.response?.data));
       throw Object.assign(new Error(`Zoho Books API error: ${msg}`), { status });
     }
   }
