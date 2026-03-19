@@ -5,27 +5,43 @@ import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import { format } from 'date-fns';
 
+// ─── Effective status (same logic as PODetail.jsx) ────────────────────────────
+// local_status checked first — accept/reject are local-only; Zoho stays 'issued'
+function getEffectiveStatus(po) {
+  if (!po) return null;
+  if (po.local_status === 'rejected')   return 'rejected';
+  if (po.local_status === 'dispatched') return 'dispatched';
+  if (po.local_status === 'accepted')   return 'accepted';
+  if (po.status === 'cancelled') return 'rejected';
+  if (po.status === 'billed')    return 'invoiced';
+  if (po.status === 'open')      return 'accepted';  // legacy fallback
+  if (po.status === 'issued')    return 'issued';
+  return null;
+}
+
+// ─── Status filter tabs ───────────────────────────────────────────────────────
+// zohoStatus: passed as ?status= query to backend (narrows Zoho fetch when possible)
+// effectiveStatuses: client-side filter by getEffectiveStatus(po) result; null = show all
 const STATUS_FILTERS = [
-  { label: 'All',           value: '',              localFilter: null },
-  { label: 'Open',          value: 'open',          localFilter: null },
-  { label: 'In Production', value: 'open',          localFilter: 'in_production' },
-  { label: 'Dispatched',    value: 'open',          localFilter: 'dispatched' },
-  { label: 'Billed',        value: 'billed',        localFilter: null },
-  { label: 'Cancelled',     value: 'cancelled',     localFilter: null },
-  { label: 'Draft',         value: 'draft',         localFilter: null },
+  { label: 'All',        zohoStatus: '',       effectiveStatuses: null },
+  { label: 'Issued',     zohoStatus: 'issued', effectiveStatuses: ['issued'] },
+  { label: 'Accepted',   zohoStatus: '',       effectiveStatuses: ['accepted'] },
+  { label: 'Dispatched', zohoStatus: '',       effectiveStatuses: ['dispatched'] },
+  { label: 'Invoiced',   zohoStatus: 'billed', effectiveStatuses: ['invoiced'] },
+  { label: 'Rejected',   zohoStatus: '',       effectiveStatuses: ['rejected'] },
 ];
 
 export default function PurchaseOrders() {
-  const [pos,         setPOs]         = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState('');
+  const [pos,          setPOs]          = useState([]);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState('');
   const [activeFilter, setActiveFilter] = useState(STATUS_FILTERS[0]);
-  const [search,      setSearch]      = useState('');
+  const [search,       setSearch]       = useState('');
 
   const loadPOs = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const params = activeFilter.value ? `?status=${activeFilter.value}` : '';
+      const params = activeFilter.zohoStatus ? `?status=${activeFilter.zohoStatus}` : '';
       const { data } = await api.get(`/purchase-orders${params}`);
       setPOs(data.purchaseorders || []);
     } catch (err) {
@@ -33,17 +49,15 @@ export default function PurchaseOrders() {
     } finally {
       setLoading(false);
     }
-  }, [activeFilter.value]);
+  }, [activeFilter.zohoStatus]);
 
   useEffect(() => { loadPOs(); }, [loadPOs]);
 
+  // Client-side filter: effective status + search
   const filtered = pos.filter(po => {
-    // Client-side local_status filter (for In Production / Dispatched tabs)
-    if (activeFilter.localFilter) {
-      if (po.local_status !== activeFilter.localFilter) return false;
-    } else if (activeFilter.value === 'open') {
-      // "Open" tab: exclude locally-overridden ones (they appear in their own tabs)
-      // Actually show all open POs including those with local_status for the main Open tab
+    const eff = getEffectiveStatus(po);
+    if (activeFilter.effectiveStatuses) {
+      if (!activeFilter.effectiveStatuses.includes(eff)) return false;
     }
     if (!search) return true;
     return (
@@ -108,7 +122,6 @@ export default function PurchaseOrders() {
         <div className="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">{error}</div>
       )}
 
-      {/* Mobile card list */}
       {loading ? (
         <div className="flex justify-center py-12">
           <div className="h-7 w-7 animate-spin rounded-full border-4 border-brand-600 border-t-transparent" />
@@ -125,7 +138,7 @@ export default function PurchaseOrders() {
               <li key={po.purchaseorder_id} className="card p-4">
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <p className="text-sm font-bold text-brand-600 dark:text-brand-400">{po.purchaseorder_number}</p>
-                  <StatusBadge status={po.local_status || po.status} />
+                  <StatusBadge status={getEffectiveStatus(po)} />
                 </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-3">
                   <span>Date: <span className="text-gray-700 dark:text-gray-300">{po.date ? format(new Date(po.date), 'dd MMM yyyy') : '—'}</span></span>
@@ -171,7 +184,7 @@ export default function PurchaseOrders() {
                       <td className="table-td font-semibold whitespace-nowrap">
                         {po.currency_code} {Number(po.total || 0).toLocaleString('en-IN')}
                       </td>
-                      <td className="table-td"><StatusBadge status={po.local_status || po.status} /></td>
+                      <td className="table-td"><StatusBadge status={getEffectiveStatus(po)} /></td>
                       <td className="table-td">
                         <Link to={`/purchase-orders/${po.purchaseorder_id}`} className="btn-outline px-3 py-1 text-xs">
                           View

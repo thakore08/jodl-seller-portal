@@ -79,9 +79,11 @@ router.get('/', async (req, res) => {
 
   const data = await zoho.getPurchaseOrders(params);
 
-  // Merge local_status into each PO in the list
+  // Merge local_status and filter out draft POs (never shown to sellers)
   if (data.purchaseorders) {
-    data.purchaseorders = data.purchaseorders.map(mergeLocalStatus);
+    data.purchaseorders = data.purchaseorders
+      .filter(po => po.status !== 'draft')
+      .map(mergeLocalStatus);
   }
 
   res.json(data);
@@ -106,14 +108,20 @@ router.get('/:id', async (req, res) => {
 // ─── POST /api/purchase-orders/:id/accept ────────────────────────────────────
 // Body (JSON): { rtd_etas: [{ item_index, eta }] }
 // rtd_etas must cover every line item; eta must be >= today (YYYY-MM-DD)
+//
+// NOTE: Acceptance is stored LOCALLY only — Zoho Books is NOT updated.
+// Zoho manages its own PO lifecycle independently.
 router.post('/:id/accept', requireRole('seller_admin', 'operations_user'), async (req, res) => {
   const { id } = req.params;
   const { rtd_etas } = req.body;
   const sellerName = req.seller.name || req.seller.email;
 
-  // Accept the PO in Zoho Books
-  const data = await zoho.acceptPurchaseOrder(id);
-  const po   = data.purchaseorder || {};
+  // Fetch PO from Zoho (needed for line_items, poNumber, and WhatsApp compat)
+  const poData = await zoho.getPurchaseOrderById(id);
+  const po     = poData.purchaseorder || {};
+
+  // Mark as accepted locally
+  poLocalStatus.set(id, 'accepted');
 
   // Store RTD ETAs per line item
   if (Array.isArray(rtd_etas) && rtd_etas.length > 0) {
@@ -142,11 +150,6 @@ router.post('/:id/accept', requireRole('seller_admin', 'operations_user'), async
     appendActivity(id, 'po_accepted', sellerName, {});
   }
 
-  // Merge stored data into the response
-  if (data.purchaseorder) {
-    data.purchaseorder = mergeLocalStatus(data.purchaseorder);
-  }
-
   // Send WhatsApp confirmation (non-blocking)
   if (whatsapp.isConfigured && req.seller.whatsapp_enabled && req.seller.whatsapp_number) {
     whatsapp.sendPOStatusUpdate({
@@ -156,19 +159,25 @@ router.post('/:id/accept', requireRole('seller_admin', 'operations_user'), async
     }).catch(err => console.warn('[WhatsApp] Accept notification failed:', err.message));
   }
 
-  res.json({ success: true, message: 'Purchase order accepted', ...data });
+  res.json({ success: true, message: 'Purchase order accepted', purchaseorder: mergeLocalStatus(po) });
 });
 
 // ─── POST /api/purchase-orders/:id/reject ────────────────────────────────────
+// NOTE: Rejection is stored LOCALLY only — Zoho Books is NOT updated.
 router.post('/:id/reject', requireRole('seller_admin', 'operations_user'), async (req, res) => {
   const { id } = req.params;
   const { reason = '' } = req.body;
+  const sellerName = req.seller.name || req.seller.email;
 
-  const data = await zoho.rejectPurchaseOrder(id, reason);
-  appendActivity(id, 'po_rejected', req.seller.name || req.seller.email, { reason });
+  // Mark as rejected locally
+  poLocalStatus.set(id, 'rejected');
+  appendActivity(id, 'po_rejected', sellerName, { reason });
+
+  // Fetch PO for response and WhatsApp notification
+  const poData = await zoho.getPurchaseOrderById(id);
+  const po     = poData.purchaseorder || {};
 
   if (whatsapp.isConfigured && req.seller.whatsapp_enabled && req.seller.whatsapp_number) {
-    const po = data.purchaseorder || {};
     whatsapp.sendPOStatusUpdate({
       to:       req.seller.whatsapp_number,
       poNumber: po.purchaseorder_number || id,
@@ -177,7 +186,7 @@ router.post('/:id/reject', requireRole('seller_admin', 'operations_user'), async
     }).catch(err => console.warn('[WhatsApp] Reject notification failed:', err.message));
   }
 
-  res.json({ success: true, message: 'Purchase order rejected', ...data });
+  res.json({ success: true, message: 'Purchase order rejected', purchaseorder: mergeLocalStatus(po) });
 });
 
 // ─── POST /api/purchase-orders/:id/mark-dispatched ───────────────────────────
@@ -190,11 +199,13 @@ router.post(
 
     const poData = await zoho.getPurchaseOrderById(id);
     const po     = poData.purchaseorder;
+    const merged = mergeLocalStatus(po);
 
-    if (po.status !== 'open') {
+    // Allow dispatch if: Zoho status is 'open' (legacy) OR seller has locally accepted
+    if (po.status !== 'open' && merged.local_status !== 'accepted') {
       return res.status(400).json({
         error:   true,
-        message: `Cannot mark as Dispatched — PO status is '${po.status}' (must be 'open')`,
+        message: `Cannot mark as Dispatched — PO must be accepted first`,
       });
     }
 
