@@ -12,6 +12,21 @@ import Modal from '../components/Modal';
 import POStatusStepper from '../components/POStatusStepper';
 import { useAuth } from '../context/AuthContext';
 
+// ─── Helper: format Zoho address object (or plain string) ────────────────────
+function formatAddress(addr) {
+  if (!addr) return null;
+  if (typeof addr === 'string') return addr.trim() || null;
+  // Zoho Books address object: { address, street2, city, state, zip, country, attention, phone }
+  const lines = [
+    addr.attention,
+    addr.address,
+    addr.street2,
+    [addr.city, addr.state, addr.zip].filter(Boolean).join(', '),
+    addr.country,
+  ].filter(Boolean);
+  return lines.length ? lines.join('\n') : null;
+}
+
 // ─── Helper: derive stepper status from PO ───────────────────────────────────
 function getEffectiveStatus(po) {
   if (!po) return 'issued';
@@ -490,28 +505,33 @@ export default function PODetail() {
         </div>
 
         {/* Buyer / Delivery info */}
-        {(po.customer_name || po.delivery_address) && (
-          <div className="border-t border-gray-100 dark:border-gray-700 pt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {po.customer_name && (
-              <div className="flex items-start gap-2 text-sm">
-                <UserIcon className="h-4 w-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-xs text-gray-400 dark:text-gray-500">Buyer</p>
-                  <p className="font-medium text-gray-900 dark:text-gray-100">{po.customer_name}</p>
+        {(() => {
+          const deliveryAddr = formatAddress(po.delivery_address);
+          const buyerName = typeof po.customer_name === 'string' ? po.customer_name : null;
+          if (!buyerName && !deliveryAddr) return null;
+          return (
+            <div className="border-t border-gray-100 dark:border-gray-700 pt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {buyerName && (
+                <div className="flex items-start gap-2 text-sm">
+                  <UserIcon className="h-4 w-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">Buyer</p>
+                    <p className="font-medium text-gray-900 dark:text-gray-100">{buyerName}</p>
+                  </div>
                 </div>
-              </div>
-            )}
-            {po.delivery_address && (
-              <div className="flex items-start gap-2 text-sm">
-                <MapPin className="h-4 w-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-xs text-gray-400 dark:text-gray-500">Delivery Address</p>
-                  <p className="font-medium text-gray-900 dark:text-gray-100 whitespace-pre-line">{po.delivery_address}</p>
+              )}
+              {deliveryAddr && (
+                <div className="flex items-start gap-2 text-sm">
+                  <MapPin className="h-4 w-4 text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-gray-400 dark:text-gray-500">Delivery Address</p>
+                    <p className="font-medium text-gray-900 dark:text-gray-100 whitespace-pre-line">{deliveryAddr}</p>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          );
+        })()}
 
         {po.notes && (
           <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
