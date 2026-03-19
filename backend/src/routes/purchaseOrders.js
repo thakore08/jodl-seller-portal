@@ -17,14 +17,24 @@ router.use(authenticate);
  */
 const poLocalStatus = new Map();
 
-// Helper: inject local_status into a single PO object
+/**
+ * In-memory per-line-item delivery dates, set at acceptance time.
+ * Key: Zoho PO ID  →  Value: [{ item_id, name, expected_date }]
+ */
+const poLineDeliveryDates = new Map();
+
+// Helper: inject local_status + line_delivery_dates into a single PO object
 function mergeLocalStatus(po) {
   if (!po) return po;
   const id = po.purchaseorder_id;
+  const result = { ...po };
   if (id && poLocalStatus.has(id)) {
-    return { ...po, local_status: poLocalStatus.get(id) };
+    result.local_status = poLocalStatus.get(id);
   }
-  return po;
+  if (id && poLineDeliveryDates.has(id)) {
+    result.line_delivery_dates = poLineDeliveryDates.get(id);
+  }
+  return result;
 }
 
 // ─── GET /api/purchase-orders ─────────────────────────────────────────────────
@@ -63,10 +73,22 @@ router.get('/:id', async (req, res) => {
 });
 
 // ─── POST /api/purchase-orders/:id/accept ────────────────────────────────────
+// Body (JSON): { line_item_delivery_dates: [{ item_id, name, expected_date }] }
 router.post('/:id/accept', requireRole('seller_admin', 'operations_user'), async (req, res) => {
   const { id } = req.params;
+  const { line_item_delivery_dates } = req.body;
+
+  // Store per-line-item delivery dates (if provided)
+  if (Array.isArray(line_item_delivery_dates) && line_item_delivery_dates.length > 0) {
+    poLineDeliveryDates.set(id, line_item_delivery_dates);
+  }
 
   const data = await zoho.acceptPurchaseOrder(id);
+
+  // Merge stored dates into the response
+  if (data.purchaseorder) {
+    data.purchaseorder = mergeLocalStatus(data.purchaseorder);
+  }
 
   // Send WhatsApp confirmation (non-blocking)
   if (whatsapp.isConfigured && req.seller.whatsapp_enabled && req.seller.whatsapp_number) {
