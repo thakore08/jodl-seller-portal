@@ -176,7 +176,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     date:              date || new Date().toISOString().split('T')[0],
     due_date:          due_date || '',
     bill_number:       bill_number || `INV-${Date.now()}`,
-    purchaseorder_ids: [{ purchaseorder_id }],
+    purchaseorder_ids: [purchaseorder_id],
     line_items:        parsedLineItems || po.line_items?.map(item => ({
       item_id:     item.item_id,
       name:        item.name,
