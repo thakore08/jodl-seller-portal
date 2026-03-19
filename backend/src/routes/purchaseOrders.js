@@ -237,10 +237,23 @@ router.post(
     }
 
     const rtdMap = poRTDData.get(id) || {};
-    const entry  = rtdMap[item_index];
+    let entry = rtdMap[item_index];
+
     if (!entry) {
-      return res.status(400).json({ error: true, message: `No RTD data found for item_index ${item_index}` });
+      // Auto-seed missing RTD entry (handles legacy 'open'-status POs, or POs accepted
+      // before per-item ETA seeding was introduced). Use today as a fallback original ETA.
+      const today = new Date().toISOString().split('T')[0];
+      entry = {
+        rtd_eta_original:    today,
+        rtd_eta_revised:     null,
+        rtd_marked_ready_at: null,
+        rtd_marked_ready_by: null,
+        revision_log:        [],
+      };
+      rtdMap[item_index] = entry;
+      poRTDData.set(id, rtdMap);
     }
+
     if (entry.rtd_marked_ready_at) {
       return res.status(400).json({ error: true, message: 'Item is already marked as Ready' });
     }
@@ -295,8 +308,9 @@ router.post(
 
     const rtdMap = poRTDData.get(id) || {};
     const entry  = rtdMap[item_index];
-    if (!entry) {
-      return res.status(400).json({ error: true, message: `No RTD data found for item_index ${item_index}` });
+    if (!entry || !entry.rtd_marked_ready_at) {
+      // Nothing to undo — treat as a no-op
+      return res.json({ success: true, message: 'Nothing to undo' });
     }
 
     entry.rtd_marked_ready_at = null;
@@ -328,9 +342,21 @@ router.patch(
     }
 
     const rtdMap = poRTDData.get(id) || {};
-    const entry  = rtdMap[item_index];
+    let entry = rtdMap[item_index];
+
     if (!entry) {
-      return res.status(400).json({ error: true, message: `No RTD data found for item_index ${item_index}` });
+      // Auto-seed: no prior ETA exists, so treat this as setting the original ETA
+      entry = {
+        rtd_eta_original:    new_eta,
+        rtd_eta_revised:     null,
+        rtd_marked_ready_at: null,
+        rtd_marked_ready_by: null,
+        revision_log:        [],
+      };
+      rtdMap[item_index] = entry;
+      poRTDData.set(id, rtdMap);
+      appendActivity(id, 'rtd_eta_set', sellerName, { item_index, eta: new_eta });
+      return res.json({ success: true, message: 'RTD ETA set', revision_count: 0 });
     }
 
     const previousEta   = entry.rtd_eta_revised || entry.rtd_eta_original;
