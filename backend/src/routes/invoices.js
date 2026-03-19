@@ -177,7 +177,8 @@ router.post('/', upload.single('file'), async (req, res) => {
 
   const billPayload = {
     vendor_id:         po.vendor_id,
-    date:              safeDate(date) || today,
+    date:              safeDate(date) || today,   // bill / invoice date
+    posting_date:      today,                     // Transaction Posting Date — always today
     ...(safeDate(due_date) && { due_date: safeDate(due_date) }),
     bill_number:       bill_number || `INV-${Date.now()}`,
     purchaseorder_ids: [purchaseorder_id],
@@ -201,6 +202,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     ...(req.file && { attachment_name: req.file.filename }),
   };
 
+  console.log('[Invoice] billPayload →', JSON.stringify(billPayload, null, 2));
   const result = await zoho.createBill(billPayload);
   const createdBillId = result.bill?.bill_id;
 
