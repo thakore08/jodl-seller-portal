@@ -4,10 +4,13 @@ const path     = require('path');
 const { v4: uuidv4 } = require('uuid');
 const zoho     = require('../services/zohoBooksService');
 const whatsapp = require('../services/whatsappService');
-const { authenticate } = require('../middleware/authMiddleware');
+const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
 const router = express.Router();
+
+// All invoice routes: authentication + finance/admin only
 router.use(authenticate);
+router.use(requireRole('seller_admin', 'finance_user'));
 
 // ─── Multer for invoice PDF upload ───────────────────────────────────────────
 const storage = multer.diskStorage({
@@ -29,12 +32,15 @@ const upload = multer({
 
 // ─── GET /api/invoices ────────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
-  const { status, page = 1 } = req.query;
+  const { status, page = 1, date_start, date_end, bill_number } = req.query;
   const vendorId = req.seller.vendor_id;
 
   const params = { page };
-  if (status)   params.status    = status;
-  if (vendorId) params.vendor_id = vendorId;
+  if (status)      params.status      = status;
+  if (vendorId)    params.vendor_id   = vendorId;
+  if (date_start)  params.date_start  = date_start;
+  if (date_end)    params.date_end    = date_end;
+  if (bill_number) params.bill_number = bill_number;
 
   const data = await zoho.getBills(params);
   res.json(data);
@@ -48,14 +54,16 @@ router.get('/:id', async (req, res) => {
 
 // ─── POST /api/invoices ───────────────────────────────────────────────────────
 // Create a bill in Zoho Books against a Purchase Order.
-// Body (multipart/form-data or JSON):
-//   purchaseorder_id   - required
-//   bill_number        - seller's invoice number
-//   date               - invoice date (YYYY-MM-DD)
-//   due_date           - due date (YYYY-MM-DD)
-//   line_items         - JSON array of line items
-//   notes              - optional
-//   file               - optional invoice PDF/image
+//
+// Body (multipart/form-data):
+//   purchaseorder_id  - required
+//   bill_number       - seller's invoice number
+//   date              - invoice date (YYYY-MM-DD)
+//   due_date          - due date (YYYY-MM-DD, optional)
+//   line_items        - JSON array of line items
+//   tax_lines         - JSON array [{ tax_name, tax_percentage, tax_amount }] for IGST/CGST/SGST
+//   notes             - optional
+//   file              - optional invoice PDF/image
 router.post('/', upload.single('file'), async (req, res) => {
   const {
     purchaseorder_id,
@@ -63,6 +71,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     date,
     due_date,
     line_items,
+    tax_lines,
     notes = '',
   } = req.body;
 
@@ -87,6 +96,16 @@ router.post('/', upload.single('file'), async (req, res) => {
     return res.status(400).json({ error: true, message: 'Invalid line_items format. Must be JSON array.' });
   }
 
+  // Parse tax_lines (IGST / CGST / SGST breakdown)
+  let parsedTaxLines = [];
+  if (tax_lines) {
+    try {
+      parsedTaxLines = typeof tax_lines === 'string' ? JSON.parse(tax_lines) : tax_lines;
+    } catch {
+      return res.status(400).json({ error: true, message: 'Invalid tax_lines format. Must be JSON array.' });
+    }
+  }
+
   const billPayload = {
     vendor_id:         po.vendor_id,
     date:              date || new Date().toISOString().split('T')[0],
@@ -102,10 +121,25 @@ router.post('/', upload.single('file'), async (req, res) => {
       account_id:  item.account_id,
     })) || [],
     notes,
+    // Tax lines (IGST, CGST, SGST) mapped to Zoho's taxes structure
+    ...(parsedTaxLines.length > 0 && {
+      taxes: parsedTaxLines.map(t => ({
+        tax_name:       t.tax_name       || t.name       || '',
+        tax_percentage: t.tax_percentage || t.percentage || 0,
+        tax_amount:     t.tax_amount     || t.amount     || 0,
+      })),
+    }),
     ...(req.file && { attachment_name: req.file.filename }),
   };
 
   const result = await zoho.createBill(billPayload);
+  const createdBillId = result.bill?.bill_id;
+
+  // Store PO reference as custom field on the created bill (fire-and-forget)
+  if (createdBillId && purchaseorder_id) {
+    zoho.updateBillCustomField(createdBillId, purchaseorder_id)
+      .catch(err => console.warn('[Invoice] Failed to set PO custom field:', err.message));
+  }
 
   // Send WhatsApp confirmation (non-blocking)
   if (whatsapp.isConfigured && req.seller.whatsapp_enabled && req.seller.whatsapp_number) {

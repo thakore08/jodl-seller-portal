@@ -3,16 +3,28 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, MessageSquare,
   LogOut, Package, X, ChevronLeft, ChevronRight,
-  Sun, Moon,
+  Sun, Moon, FileText, CreditCard, User,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 
-const navItems = [
-  { to: '/',                icon: LayoutDashboard, label: 'Dashboard',       end: true },
-  { to: '/purchase-orders', icon: ShoppingCart,    label: 'Purchase Orders' },
-  { to: '/whatsapp',        icon: MessageSquare,   label: 'WhatsApp' },
-];
+const ROLE_LABELS = {
+  seller_admin:    'Admin',
+  operations_user: 'Operations',
+  finance_user:    'Finance',
+};
+
+function getNavItems(role) {
+  const all = [
+    { to: '/',                icon: LayoutDashboard, label: 'Dashboard',       end: true,  roles: null },
+    { to: '/purchase-orders', icon: ShoppingCart,    label: 'Purchase Orders', roles: ['seller_admin', 'operations_user'] },
+    { to: '/invoices',        icon: FileText,        label: 'Invoices',        roles: ['seller_admin', 'finance_user'] },
+    { to: '/payments',        icon: CreditCard,      label: 'Payments',        roles: ['seller_admin', 'finance_user'] },
+    { to: '/profile',         icon: User,            label: 'Profile',         roles: ['seller_admin'] },
+    { to: '/whatsapp',        icon: MessageSquare,   label: 'WhatsApp',        roles: ['seller_admin'] },
+  ];
+  return all.filter(item => !item.roles || item.roles.includes(role));
+}
 
 /**
  * Sidebar — dual-mode:
@@ -22,6 +34,9 @@ const navItems = [
 export default function Sidebar({ open, onClose, collapsed, onToggleCollapse }) {
   const { seller, logout } = useAuth();
   const { dark, toggle }   = useTheme();
+
+  const navItems  = getNavItems(seller?.role);
+  const roleLabel = ROLE_LABELS[seller?.role] || '';
 
   return (
     <aside
@@ -93,10 +108,15 @@ export default function Sidebar({ open, onClose, collapsed, onToggleCollapse }) 
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">{seller?.name}</p>
               <p className="truncate text-xs text-gray-500 dark:text-gray-400">{seller?.company}</p>
+              {roleLabel && (
+                <span className="mt-0.5 inline-block rounded-full bg-brand-100 dark:bg-brand-900/40 px-2 py-0.5 text-[10px] font-semibold text-brand-700 dark:text-brand-400">
+                  {roleLabel}
+                </span>
+              )}
             </div>
           </div>
         ) : (
-          <div className="flex justify-center mb-2" title={seller?.name}>
+          <div className="flex justify-center mb-2" title={`${seller?.name} (${roleLabel})`}>
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-400 text-sm font-semibold">
               {seller?.name?.[0] || 'S'}
             </div>
