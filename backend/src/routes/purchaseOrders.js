@@ -73,17 +73,22 @@ router.get('/', async (req, res) => {
   const { status, page = 1, per_page = 25 } = req.query;
   const vendorId = req.seller.vendor_id;
 
-  const params = { page, per_page };
+  // Overfetch 5× to compensate for draft POs being filtered client-side.
+  // Zoho returns POs newest-first; the most recent batch may be all drafts.
+  // Fetching more ensures we get enough non-draft items after filtering.
+  const zohoPerPage = Math.min(Number(per_page) * 5, 200);
+  const params = { page, per_page: zohoPerPage };
   if (status)   params.status    = status;
   if (vendorId) params.vendor_id = vendorId;
 
   const data = await zoho.getPurchaseOrders(params);
 
-  // Merge local_status and filter out draft POs (never shown to sellers)
+  // Filter out draft POs (never shown to sellers) then slice to requested count
   if (data.purchaseorders) {
-    data.purchaseorders = data.purchaseorders
+    const filtered = data.purchaseorders
       .filter(po => po.status !== 'draft')
       .map(mergeLocalStatus);
+    data.purchaseorders = filtered.slice(0, Number(per_page));
   }
 
   res.json(data);
