@@ -143,6 +143,15 @@ function normaliseDate(raw) {
     const mo = MONTH_MAP[m[2].toLowerCase().slice(0,3)];
     if (mo) return `${m[3]}-${mo}-${m[1].padStart(2,'0')}`;
   }
+  // DD MMM YY — 2-digit year (e.g. 14-Mar-26 used in Indian e-invoices) → treat as 20YY
+  m = s.match(/^(\d{1,2})[\s\-]([A-Za-z]{3,9})[\s\-,](\d{2})$/);
+  if (m) {
+    const mo = MONTH_MAP[m[2].toLowerCase().slice(0, 3)];
+    if (mo) return `20${m[3]}-${mo}-${m[1].padStart(2, '0')}`;
+  }
+  // DD/MM/YY — 2-digit year
+  m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2})$/);
+  if (m) return `20${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
   return null;
 }
 
@@ -175,14 +184,21 @@ function extractHeader(text) {
   const invoiceNumber = extractField(t, [
     { re: /(?:invoice\s*(?:no|number|#)|bill\s*(?:no|number))[.\s:#]*([A-Z0-9][A-Z0-9\-\/]{2,30})/i, confidence: 'high' },
     { re: /(?:tax\s*invoice)\s*(?:no|#)?[.:\s]*([A-Z0-9][A-Z0-9\-\/]{2,30})/i,                       confidence: 'high' },
+    // Indian e-invoice: value on next line after "Invoice No." header
+    { re: /Invoice\s*No\.?\s*\n+\s*([A-Z0-9][A-Z0-9\-\/]{3,30})/i,                                   confidence: 'high' },
+    // Indian e-invoice table: "Invoice No.  e-Way Bill No.  Dated\n<INV>  <EWAY>  <DATE>"
+    { re: /Invoice\s*No\.?\s+e.?Way[^\n]*\n+([A-Z0-9][A-Z0-9\-\/]{3,30})/i,                          confidence: 'high' },
     { re: /^(INV|BILL|TI|SI|GST)[\/\-]?[\d]{4}[\/\-]?[\d]{1,6}/im,                                   confidence: 'medium' },
   ]);
 
   // Invoice date
   const invoiceDate = extractDateField(t, [
-    { re: /(?:invoice\s*date|date\s*of\s*issue|bill\s*date)[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})/i, confidence: 'high' },
+    { re: /(?:invoice\s*date|date\s*of\s*issue|bill\s*date)[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})/i,   confidence: 'high' },
     { re: /(?:invoice\s*date|date\s*of\s*issue|bill\s*date)[:\s]*(\d{1,2}[\s\-][A-Za-z]{3,9}[\s\-,]\d{4})/i, confidence: 'high' },
-    { re: /\bdate[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})/i,                                            confidence: 'medium' },
+    // Indian e-invoice uses "Dated" label (not "Invoice Date") with 2- or 4-digit year
+    { re: /\bDated[:\s]*(\d{1,2}[\s\-][A-Za-z]{3,9}[\s\-,]\d{2,4})/i,                                        confidence: 'high' },
+    { re: /\bDated[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/i,                                           confidence: 'high' },
+    { re: /\bdate[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})/i,                                              confidence: 'medium' },
   ]);
 
   // Due date
@@ -192,11 +208,14 @@ function extractHeader(text) {
   ]);
 
   // GSTINs (first = seller, second = buyer)
+  // Some IRP-generated PDFs insert a space within the GSTIN; allow optional spaces and strip them.
+  const GSTIN_RE_SPACED = /\b([0-9]{2}\s*[A-Z]{5}\s*[0-9]{4}\s*[A-Z][1-9A-Z]Z[0-9A-Z])\b/g;
   const gstins = [];
   let gm;
-  const gstReCopy = new RegExp(GSTIN_RE.source, 'g');
+  const gstReCopy = new RegExp(GSTIN_RE_SPACED.source, 'g');
   while ((gm = gstReCopy.exec(t)) !== null) {
-    if (!gstins.includes(gm[1])) gstins.push(gm[1]);
+    const clean = gm[1].replace(/\s+/g, '');   // strip any spaces inside GSTIN
+    if (!gstins.includes(clean)) gstins.push(clean);
     if (gstins.length === 2) break;
   }
   const sellerGstin = { value: gstins[0] || null, confidence: gstins[0] ? 'high' : 'low' };
@@ -204,16 +223,26 @@ function extractHeader(text) {
 
   // Seller / buyer name (lines near the GSTINs)
   const sellerName = extractField(t, [
-    { re: /(?:seller|from|supplier|vendor|consignor)\s*(?:name)?[:\s]*([A-Za-z][\w\s&.,()-]{2,60})/i, confidence: 'medium' },
-    { re: /^([A-Z][A-Z\s&.,()-]{3,50}(?:LTD|LIMITED|PVT|PRIVATE|INDUSTRIES|STEEL|CORP|CO\.?))\b/im, confidence: 'low' },
+    // Indian invoice: company name appears on the line just before "GSTIN/UIN :"
+    { re: /([A-Za-z][\w\s&.,()-]{2,60})\n[^\n]{0,120}GSTIN\/UIN/i,                                     confidence: 'high' },
+    // Existing keyword-based label pattern
+    { re: /(?:seller|from|supplier|vendor|consignor)\s*(?:name)?[:\s]*([A-Za-z][\w\s&.,()-]{2,60})/i,   confidence: 'medium' },
+    // Company name at start-of-line with expanded suffix list (LLP added for Indian LLPs)
+    { re: /^([A-Z][A-Za-z\s&.,()-]{3,50}(?:LLP|LTD|LIMITED|PVT|PRIVATE|INDUSTRIES|STEEL|CORP|CO\.?|IMPEX|ENTERPRISE[S]?|TRADING))\s*$/im, confidence: 'low' },
   ]);
   const buyerName = extractField(t, [
+    // Indian invoice: section header "Buyer (Bill to)" then company name on next line
+    { re: /(?:buyer|bill\s*to|consignee)\s*[\(\)\w\s]*\n+\s*([A-Za-z][\w\s&.,()-]{2,60})/i,            confidence: 'high' },
+    // Same-line fallback
     { re: /(?:buyer|bill\s*to|ship\s*to|sold\s*to|purchaser)\s*(?:name)?[:\s]*([A-Za-z][\w\s&.,()-]{2,60})/i, confidence: 'medium' },
   ]);
 
   // Place of supply
   const placeOfSupply = extractField(t, [
-    { re: /place\s*of\s*supply[:\s]*([A-Za-z\s]{3,30})/i, confidence: 'medium' },
+    // Indian GST invoice standard: "State Name : Maharashtra, Code : 27"
+    { re: /State\s*Name\s*:\s*([A-Za-z][A-Za-z\s]{2,29})(?:,|\s*Code)/i, confidence: 'medium' },
+    // Explicit "Place of Supply:" label (fallback)
+    { re: /place\s*of\s*supply[:\s]*([A-Za-z\s]{3,30})/i,                confidence: 'medium' },
   ]);
 
   // Taxable value
