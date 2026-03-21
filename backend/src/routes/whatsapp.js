@@ -449,4 +449,47 @@ router.post('/notify-po', authenticate, async (req, res) => {
   res.json({ success: true, result });
 });
 
+// ─── GET /api/whatsapp/debug (auth required) ──────────────────────────────────
+// Returns Meta phone number info + sends a test text message to reveal actual API response
+router.get('/debug', authenticate, async (req, res) => {
+  const axios = require('axios');
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const accessToken   = process.env.WHATSAPP_ACCESS_TOKEN;
+  const apiVersion    = process.env.WHATSAPP_API_VERSION || 'v19.0';
+  const to            = '917738305384';
+
+  const results = { phoneNumberId, tokenPrefix: accessToken?.slice(0, 20) + '...', to };
+
+  // 1. Fetch phone number details from Meta
+  try {
+    const info = await axios.get(
+      `https://graph.facebook.com/${apiVersion}/${phoneNumberId}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    results.phoneInfo = info.data;
+  } catch (e) {
+    results.phoneInfoError = e.response?.data || e.message;
+  }
+
+  // 2. Send a simple text message and capture full Meta response
+  try {
+    const msg = await axios.post(
+      `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'text',
+        text: { body: 'JODL debug test — if you see this, WhatsApp delivery is working ✅' },
+      },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+    );
+    results.metaResponse = msg.data;
+  } catch (e) {
+    results.metaError = e.response?.data || e.message;
+  }
+
+  res.json(results);
+});
+
 module.exports = router;
