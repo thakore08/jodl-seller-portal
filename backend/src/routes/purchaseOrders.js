@@ -45,6 +45,9 @@ const poRTDData = new Map();
  */
 const poActivityLog = new Map();
 
+// Track POs for which a WhatsApp notification has already been sent this session
+const notifiedPoIds = new Set();
+
 // Helper: append an event to a PO's activity log
 function appendActivity(poId, event, actor, details = {}) {
   if (!poActivityLog.has(poId)) poActivityLog.set(poId, []);
@@ -89,6 +92,18 @@ router.get('/', async (req, res) => {
       .filter(po => po.status !== 'draft')
       .map(mergeLocalStatus);
     data.purchaseorders = filtered.slice(0, Number(per_page));
+
+    // Auto-trigger WhatsApp notification for newly-seen issued/open POs
+    if (whatsapp.isConfigured) {
+      filtered
+        .filter(po => (po.status === 'issued' || po.status === 'open') && !notifiedPoIds.has(po.purchaseorder_id))
+        .forEach(po => {
+          notifiedPoIds.add(po.purchaseorder_id); // add immediately to prevent race-condition duplicates
+          whatsapp.triggerPONotification(po).catch(err =>
+            console.error(`[AutoNotify] WA notification failed for ${po.purchaseorder_number}:`, err.message)
+          );
+        });
+    }
   }
 
   res.json(data);
