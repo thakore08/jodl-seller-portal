@@ -4,7 +4,9 @@
  * Handles:
  *  1. Sending PO notifications to sellers with Accept/Reject buttons
  *  2. Sending invoice confirmation messages
- *  3. Parsing incoming webhook messages (button replies)
+ *  3. Parsing incoming webhook messages (button replies, text, documents, images)
+ *  4. Downloading media from Meta's servers
+ *  5. Triggering PO notifications from Zoho webhook events
  *
  * Docs: https://developers.facebook.com/docs/whatsapp/cloud-api
  */
@@ -49,13 +51,11 @@ class WhatsAppService {
     }
   }
 
-  // ─── PO Notification with Interactive Buttons ────────────────────────────────
+  // ─── PO Notification with Interactive Buttons ─────────────────────────────
   /**
    * Sends an interactive message to the seller with Accept / Reject quick-reply buttons.
-   * Uses a TEXT interactive message (no approved template needed for testing).
-   * For production, replace with an approved template message.
    */
-  async sendPONotification({ to, poNumber, amount, currency = 'INR', deliveryDate, poId }) {
+  async sendPONotification({ to, poNumber, amount, currency = 'INR', deliveryDate, poId, itemCount }) {
     const formattedAmount = new Intl.NumberFormat('en-IN', { style: 'currency', currency }).format(amount);
 
     const payload = {
@@ -66,12 +66,12 @@ class WhatsAppService {
       interactive: {
         type: 'button',
         body: {
-          text: `📦 *New Purchase Order — JODL*\n\nPO Number: *${poNumber}*\nAmount: *${formattedAmount}*\nExpected Delivery: *${deliveryDate || 'TBD'}*\n\nPlease accept or reject this PO.`,
+          text: `📦 *New Purchase Order — JODL*\n\nPO Number: *${poNumber}*\nAmount: *${formattedAmount}*\nDelivery Date: *${deliveryDate || 'TBD'}*\nItems: ${itemCount || 0} line item(s)\n\nPlease review the PO and reply:\n✅ Reply *ACCEPT* to accept this PO\n❌ Reply *REJECT* to reject this PO\n\nOr tap the buttons below 👇`,
         },
         action: {
           buttons: [
-            { type: 'reply', reply: { id: `accept_${poId}`, title: '✅ Accept' } },
-            { type: 'reply', reply: { id: `reject_${poId}`, title: '❌ Reject' } },
+            { type: 'reply', reply: { id: `accept_${poId}`, title: '✅ Accept PO' } },
+            { type: 'reply', reply: { id: `reject_${poId}`, title: '❌ Reject PO' } },
           ],
         },
       },
@@ -80,7 +80,7 @@ class WhatsAppService {
     return this.sendMessage(payload);
   }
 
-  // ─── Invoice Posted Confirmation ─────────────────────────────────────────────
+  // ─── Invoice Posted Confirmation ──────────────────────────────────────────
   async sendInvoiceConfirmation({ to, invoiceNumber, poNumber, amount, currency = 'INR' }) {
     const formattedAmount = new Intl.NumberFormat('en-IN', { style: 'currency', currency }).format(amount);
 
@@ -97,7 +97,7 @@ class WhatsAppService {
     return this.sendMessage(payload);
   }
 
-  // ─── PO Status Change Notification ──────────────────────────────────────────
+  // ─── PO Status Change Notification ───────────────────────────────────────
   async sendPOStatusUpdate({ to, poNumber, status, reason = '' }) {
     const statusText = status === 'accepted'
       ? `✅ Accepted — please submit your invoice via the seller portal.`
@@ -116,7 +116,7 @@ class WhatsAppService {
     return this.sendMessage(payload);
   }
 
-  // ─── All Items Ready to Dispatch (admin notification) ────────────────────────
+  // ─── All Items Ready to Dispatch (admin notification) ─────────────────────
   async sendAllItemsReady({ to, poNumber, lineItemCount, sellerName, adminPoUrl }) {
     const payload = {
       messaging_product: 'whatsapp',
@@ -130,7 +130,7 @@ class WhatsAppService {
     return this.sendMessage(payload);
   }
 
-  // ─── RTD ETA Revised (admin notification) ────────────────────────────────────
+  // ─── RTD ETA Revised (admin notification) ─────────────────────────────────
   async sendRTDEtaRevised({ to, poNumber, sellerName, itemDescription, originalEta, newEta, adminPoUrl }) {
     const payload = {
       messaging_product: 'whatsapp',
@@ -144,7 +144,7 @@ class WhatsAppService {
     return this.sendMessage(payload);
   }
 
-  // ─── Generic Text Message ────────────────────────────────────────────────────
+  // ─── Generic Text Message ─────────────────────────────────────────────────
   async sendTextMessage(to, message) {
     return this.sendMessage({
       messaging_product: 'whatsapp',
@@ -155,7 +155,151 @@ class WhatsAppService {
     });
   }
 
-  // ─── Webhook Helpers ─────────────────────────────────────────────────────────
+  // ─── Invoice Correction Request ───────────────────────────────────────────
+  /**
+   * Sends a correction request message to a vendor for their uploaded invoice.
+   *
+   * @param {string} to         - Vendor phone number
+   * @param {string} poNumber   - PO number the invoice was against
+   * @param {string} adminNote  - Admin's note explaining what needs correcting
+   */
+  async sendInvoiceCorrectionRequest({ to, poNumber, adminNote }) {
+    return this.sendMessage({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'text',
+      text: {
+        body: `⚠️ *Invoice Correction Required*\n\nInvoice against PO *${poNumber}* needs correction:\n\n"${adminNote}"\n\nPlease send the corrected invoice in this chat.`,
+      },
+    });
+  }
+
+  // ─── PO Accept/Upload Invoice Prompt ─────────────────────────────────────
+  /**
+   * Sends the post-acceptance message prompting vendor to upload their invoice.
+   */
+  async sendInvoiceUploadPrompt({ to, poNumber }) {
+    return this.sendMessage({
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'text',
+      text: {
+        body: `✅ *PO #${poNumber} Accepted!*\n\nThank you for accepting the purchase order.\n\n📎 Please upload your invoice against this PO.\nSend the invoice as a *PDF file* or *image* in this chat.\n\nYour invoice will be automatically processed and posted to our system.`,
+      },
+    });
+  }
+
+  // ─── Multi-PO Selection Prompt ────────────────────────────────────────────
+  /**
+   * Prompts vendor to select which PO their invoice is against.
+   *
+   * @param {string}   to   - Vendor phone
+   * @param {Array}    pos  - Array of { poNumber, total, currency_code }
+   */
+  async sendPOSelectionPrompt({ to, pos }) {
+    const lines = pos.map((po, i) => {
+      const nums = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣'];
+      const amt  = new Intl.NumberFormat('en-IN', { style: 'currency', currency: po.currency_code || 'INR' }).format(po.total || 0);
+      return `${nums[i] || `${i + 1}.`}  ${po.purchaseorder_number} — ${amt}`;
+    });
+
+    return this.sendTextMessage(to,
+      `📋 *Select PO for this Invoice*\n\nYou have multiple open Purchase Orders.\nReply with the number or the PO number this invoice is against:\n\n${lines.join('\n')}`
+    );
+  }
+
+  // ─── Media Download ───────────────────────────────────────────────────────
+  /**
+   * Downloads a media file from Meta's servers using a media ID.
+   * First fetches the download URL, then downloads the binary.
+   *
+   * @param {string} mediaId  - Media ID from webhook message
+   * @returns {{ buffer: Buffer, mimeType: string, fileSize: number }}
+   */
+  async downloadMedia(mediaId) {
+    this._requireConfig();
+    try {
+      // Step 1: Get media info (URL, mime_type, file_size)
+      const infoRes = await axios.get(
+        `${this.baseUrl}/${mediaId}`,
+        { headers: { Authorization: `Bearer ${this.accessToken}` } }
+      );
+      const { url, mime_type, file_size } = infoRes.data;
+
+      // Step 2: Download binary from the URL
+      const fileRes = await axios.get(url, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+        responseType: 'arraybuffer',
+      });
+
+      return {
+        buffer:   Buffer.from(fileRes.data),
+        mimeType: mime_type || 'application/octet-stream',
+        fileSize: file_size || fileRes.data.byteLength,
+      };
+    } catch (err) {
+      const detail = err.response?.data?.error?.message || err.message;
+      throw Object.assign(new Error(`WhatsApp media download failed: ${detail}`), { status: 502 });
+    }
+  }
+
+  // ─── Trigger PO Notification (called from Zoho webhook) ──────────────────
+  /**
+   * Finds the seller for a given Zoho vendor_id, checks notification prefs,
+   * and sends the PO notification with Accept/Reject buttons.
+   *
+   * @param {Object} poData - Raw Zoho purchaseorder object
+   * @returns {{ sent: boolean, reason?: string }}
+   */
+  async triggerPONotification(poData) {
+    const { sellers }  = require('../data/sellers');
+    const sessionSvc   = require('./whatsappSessionService');
+
+    const vendorId = poData.vendor_id;
+    const seller   = sellers.find(s => s.vendor_id === vendorId);
+
+    if (!seller) {
+      console.warn(`[WhatsApp] triggerPONotification: no seller for vendor_id=${vendorId}`);
+      return { sent: false, reason: 'seller_not_found' };
+    }
+
+    if (!seller.whatsapp_enabled) {
+      return { sent: false, reason: 'whatsapp_disabled' };
+    }
+
+    if (!seller.notifications?.new_po) {
+      return { sent: false, reason: 'notification_disabled' };
+    }
+
+    const to = seller.whatsapp_number;
+    if (!to) {
+      return { sent: false, reason: 'no_phone_number' };
+    }
+
+    const poId       = poData.purchaseorder_id;
+    const poNumber   = poData.purchaseorder_number;
+    const amount     = poData.total || 0;
+    const currency   = poData.currency_code || 'INR';
+    const deliveryDate = poData.expected_delivery_date || poData.delivery_date || '';
+    const itemCount  = (poData.line_items || []).length;
+
+    await this.sendPONotification({ to, poNumber, amount, currency, deliveryDate, poId, itemCount });
+
+    // Create a session for this vendor to track their response
+    sessionSvc.createSession(to.replace(/^\+/, ''), {
+      sellerId: seller.id,
+      poId,
+      poNumber,
+      state: 'awaiting_po_response',
+    });
+
+    console.log(`[WhatsApp] PO notification sent for ${poNumber} to ${to}`);
+    return { sent: true };
+  }
+
+  // ─── Webhook Helpers ──────────────────────────────────────────────────────
   verifyWebhook(mode, token, challenge) {
     if (mode === 'subscribe' && token === this.verifyToken) {
       return { valid: true, challenge };
@@ -165,7 +309,7 @@ class WhatsAppService {
 
   /**
    * Parse incoming webhook entry and extract message details.
-   * Returns { from, type, text?, buttonReplyId?, buttonReplyTitle? }
+   * Returns { from, type, text?, buttonReplyId?, action?, poId?, mediaId?, mimeType?, filename? }
    */
   parseWebhookMessage(body) {
     try {
@@ -177,14 +321,15 @@ class WhatsAppService {
       if (!message) return null;
 
       const result = {
-        from: message.from,
-        type: message.type,
+        from:      message.from,
+        type:      message.type,
         messageId: message.id,
         timestamp: message.timestamp,
       };
 
       if (message.type === 'text') {
         result.text = message.text?.body;
+
       } else if (message.type === 'interactive') {
         const reply = message.interactive?.button_reply;
         result.buttonReplyId    = reply?.id;
@@ -196,6 +341,18 @@ class WhatsAppService {
           result.action = action;  // 'accept' | 'reject'
           result.poId   = rest.join('_');
         }
+
+      } else if (message.type === 'document') {
+        result.mediaId  = message.document?.id;
+        result.mimeType = message.document?.mime_type;
+        result.filename = message.document?.filename;
+        result.caption  = message.document?.caption;
+
+      } else if (message.type === 'image') {
+        result.mediaId  = message.image?.id;
+        result.mimeType = message.image?.mime_type;
+        result.filename = `image_${message.id}.jpg`;
+        result.caption  = message.image?.caption;
       }
 
       return result;
