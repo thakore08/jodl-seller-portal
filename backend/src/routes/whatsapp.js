@@ -83,7 +83,7 @@ router.get('/diagnose', authenticate, async (req, res) => {
   try {
     // Check phone number registration status
     const phoneInfo = await axios.get(
-      `https://graph.facebook.com/${whatsapp.apiVersion}/${phoneNumberId}?fields=id,display_phone_number,verified_name,quality_rating,platform_type,status,name_status,new_name_status,certificate,review_status`,
+      `https://graph.facebook.com/${whatsapp.apiVersion}/${phoneNumberId}?fields=id,display_phone_number,verified_name,quality_rating,platform_type,status,name_status`,
       { headers: { Authorization: `Bearer ${token}` } }
     ).catch(e => ({ data: { error: e.response?.data } }));
 
