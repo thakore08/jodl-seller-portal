@@ -34,6 +34,8 @@ class WhatsAppService {
 
   async sendMessage(payload) {
     this._requireConfig();
+    // Meta Cloud API requires phone numbers WITHOUT leading '+'
+    if (payload.to) payload.to = payload.to.replace(/^\+/, '');
     try {
       const res = await axios.post(
         `${this.baseUrl}/${this.phoneNumberId}/messages`,
