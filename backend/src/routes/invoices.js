@@ -85,6 +85,10 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
     po.line_items || []
   );
 
+  // Log raw text on the server so it appears in Render logs regardless of client environment
+  console.log('[Invoice OCR] raw_text for', req.file.originalname, ':\n', extraction.raw_text);
+  console.log('[Invoice OCR] header result:', JSON.stringify(extraction.header, null, 2));
+
   res.json({
     success:        true,
     is_scanned:     false,
@@ -92,8 +96,7 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
     line_items:     extraction.line_items,
     match_results:  matchResults,
     extraction_log: extraction.extraction_log,
-    // Expose raw text in non-production environments for debugging patterns
-    ...(process.env.NODE_ENV !== 'production' && { raw_text: extraction.raw_text }),
+    raw_text:       extraction.raw_text,   // always include for client-side debugging
   });
 });
 
