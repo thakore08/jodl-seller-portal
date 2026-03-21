@@ -87,6 +87,16 @@ router.get('/diagnose', authenticate, async (req, res) => {
       { headers: { Authorization: `Bearer ${token}` } }
     ).catch(e => ({ data: { error: e.response?.data } }));
 
+    // If phone status is PENDING, attempt to register it first
+    let registerResult = null;
+    if (phoneInfo.data?.status === 'PENDING') {
+      registerResult = await axios.post(
+        `https://graph.facebook.com/${whatsapp.apiVersion}/${phoneNumberId}/register`,
+        { messaging_product: 'whatsapp', pin: '000000' },
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+      ).then(r => r.data).catch(e => ({ error: e.response?.data }));
+    }
+
     // Try sending hello_world template
     const sendResult = await axios.post(
       `https://graph.facebook.com/${whatsapp.apiVersion}/${phoneNumberId}/messages`,
@@ -94,7 +104,7 @@ router.get('/diagnose', authenticate, async (req, res) => {
       { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
     ).then(r => r.data).catch(e => ({ error: e.response?.data }));
 
-    res.json({ phoneInfo: phoneInfo.data, sendResult, to, phoneNumberId });
+    res.json({ phoneInfo: phoneInfo.data, registerResult, sendResult, to, phoneNumberId });
   } catch (err) {
     res.json({ success: false, status: err.response?.status, data: err.response?.data });
   }
