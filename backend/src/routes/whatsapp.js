@@ -74,6 +74,24 @@ router.post('/send-test', authenticate, async (req, res) => {
   res.json({ success: true, result });
 });
 
+// ─── GET /api/whatsapp/diagnose (auth required) ───────────────────────────────
+router.get('/diagnose', authenticate, async (req, res) => {
+  const axios = require('axios');
+  const phoneNumberId = whatsapp.phoneNumberId;
+  const token = whatsapp.accessToken;
+  const to = (req.seller.whatsapp_number || '').replace(/^\+/, '');
+  try {
+    const r = await axios.post(
+      `https://graph.facebook.com/${whatsapp.apiVersion}/${phoneNumberId}/messages`,
+      { messaging_product: 'whatsapp', to, type: 'template', template: { name: 'hello_world', language: { code: 'en_US' } } },
+      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+    );
+    res.json({ success: true, data: r.data });
+  } catch (err) {
+    res.json({ success: false, status: err.response?.status, data: err.response?.data });
+  }
+});
+
 // ─── GET /api/whatsapp/status (auth required) ────────────────────────────────
 router.get('/status', authenticate, (req, res) => {
   res.json({
