@@ -471,7 +471,27 @@ router.get('/debug', authenticate, async (req, res) => {
     results.phoneInfoError = e.response?.data || e.message;
   }
 
-  // 2. Send a simple text message and capture full Meta response
+  // 2. Send hello_world template (guaranteed delivery, no 24h window restriction)
+  try {
+    const msg = await axios.post(
+      `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to,
+        type: 'template',
+        template: {
+          name: 'hello_world',
+          language: { code: 'en_US' },
+        },
+      },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+    );
+    results.templateResponse = msg.data;
+  } catch (e) {
+    results.templateError = e.response?.data || e.message;
+  }
+
+  // 3. Also send a plain text message
   try {
     const msg = await axios.post(
       `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`,
@@ -480,13 +500,13 @@ router.get('/debug', authenticate, async (req, res) => {
         recipient_type: 'individual',
         to,
         type: 'text',
-        text: { body: 'JODL debug test — if you see this, WhatsApp delivery is working ✅' },
+        text: { body: 'JODL debug test — plain text message ✅' },
       },
       { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
     );
-    results.metaResponse = msg.data;
+    results.textResponse = msg.data;
   } catch (e) {
-    results.metaError = e.response?.data || e.message;
+    results.textError = e.response?.data || e.message;
   }
 
   res.json(results);
