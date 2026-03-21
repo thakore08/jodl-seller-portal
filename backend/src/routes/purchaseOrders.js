@@ -419,7 +419,20 @@ router.post('/:id/notify', async (req, res) => {
   }
 
   const { phone } = req.body;
-  const to = phone || req.seller.whatsapp_number;
+  let to = phone || req.seller.whatsapp_number;
+
+  // Auto-fetch from Zoho Books vendor contact if not set locally
+  if (!to && req.seller.vendor_id) {
+    try {
+      const vendorData = await zoho.getVendorById(req.seller.vendor_id);
+      const contact = vendorData?.contact;
+      to = contact?.mobile || contact?.phone || null;
+      if (to) console.log(`[WhatsApp] Using Zoho phone for vendor ${req.seller.vendor_id}: ${to}`);
+    } catch (err) {
+      console.warn('[WhatsApp] Could not fetch vendor phone from Zoho:', err.message);
+    }
+  }
+
   if (!to) {
     return res.status(400).json({ error: true, message: 'No phone number to send notification to' });
   }
