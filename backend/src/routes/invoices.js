@@ -92,6 +92,8 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
     line_items:     extraction.line_items,
     match_results:  matchResults,
     extraction_log: extraction.extraction_log,
+    // Expose raw text in non-production environments for debugging patterns
+    ...(process.env.NODE_ENV !== 'production' && { raw_text: extraction.raw_text }),
   });
 });
 
