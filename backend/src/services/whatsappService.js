@@ -44,9 +44,7 @@ class WhatsAppService {
       );
       return res.data;
     } catch (err) {
-      const errData = err.response?.data?.error || {};
-      const detail = `${errData.message || err.message} [code:${errData.code} sub:${errData.error_subcode} data:${JSON.stringify(errData.error_data)}]`;
-      console.error('[WhatsApp] Full error:', JSON.stringify(err.response?.data || err.message));
+      const detail = err.response?.data?.error?.message || err.message;
       throw Object.assign(new Error(`WhatsApp send failed: ${detail}`), { status: 502 });
     }
   }

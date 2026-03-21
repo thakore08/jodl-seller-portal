@@ -74,42 +74,6 @@ router.post('/send-test', authenticate, async (req, res) => {
   res.json({ success: true, result });
 });
 
-// ─── GET /api/whatsapp/diagnose (auth required) ───────────────────────────────
-router.get('/diagnose', authenticate, async (req, res) => {
-  const axios = require('axios');
-  const phoneNumberId = whatsapp.phoneNumberId;
-  const token = whatsapp.accessToken;
-  const to = (req.seller.whatsapp_number || '').replace(/^\+/, '');
-  try {
-    // Check phone number registration status
-    const phoneInfo = await axios.get(
-      `https://graph.facebook.com/${whatsapp.apiVersion}/${phoneNumberId}?fields=id,display_phone_number,verified_name,quality_rating,platform_type,status,name_status`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    ).catch(e => ({ data: { error: e.response?.data } }));
-
-    // If phone status is PENDING, attempt to register it first
-    let registerResult = null;
-    if (phoneInfo.data?.status === 'PENDING') {
-      registerResult = await axios.post(
-        `https://graph.facebook.com/${whatsapp.apiVersion}/${phoneNumberId}/register`,
-        { messaging_product: 'whatsapp', pin: '000000' },
-        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-      ).then(r => r.data).catch(e => ({ error: e.response?.data }));
-    }
-
-    // Try sending hello_world template
-    const sendResult = await axios.post(
-      `https://graph.facebook.com/${whatsapp.apiVersion}/${phoneNumberId}/messages`,
-      { messaging_product: 'whatsapp', to, type: 'template', template: { name: 'hello_world', language: { code: 'en_US' } } },
-      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-    ).then(r => r.data).catch(e => ({ error: e.response?.data }));
-
-    res.json({ phoneInfo: phoneInfo.data, registerResult, sendResult, to, phoneNumberId });
-  } catch (err) {
-    res.json({ success: false, status: err.response?.status, data: err.response?.data });
-  }
-});
-
 // ─── GET /api/whatsapp/status (auth required) ────────────────────────────────
 router.get('/status', authenticate, (req, res) => {
   res.json({
