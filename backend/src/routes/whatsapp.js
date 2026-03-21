@@ -81,12 +81,20 @@ router.get('/diagnose', authenticate, async (req, res) => {
   const token = whatsapp.accessToken;
   const to = (req.seller.whatsapp_number || '').replace(/^\+/, '');
   try {
-    const r = await axios.post(
+    // Check phone number registration status
+    const phoneInfo = await axios.get(
+      `https://graph.facebook.com/${whatsapp.apiVersion}/${phoneNumberId}?fields=id,display_phone_number,verified_name,quality_rating,platform_type,status,name_status,new_name_status,certificate,review_status`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    ).catch(e => ({ data: { error: e.response?.data } }));
+
+    // Try sending hello_world template
+    const sendResult = await axios.post(
       `https://graph.facebook.com/${whatsapp.apiVersion}/${phoneNumberId}/messages`,
       { messaging_product: 'whatsapp', to, type: 'template', template: { name: 'hello_world', language: { code: 'en_US' } } },
       { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-    );
-    res.json({ success: true, data: r.data });
+    ).then(r => r.data).catch(e => ({ error: e.response?.data }));
+
+    res.json({ phoneInfo: phoneInfo.data, sendResult, to, phoneNumberId });
   } catch (err) {
     res.json({ success: false, status: err.response?.status, data: err.response?.data });
   }
