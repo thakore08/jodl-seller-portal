@@ -237,7 +237,7 @@ function extractHeader(text) {
     const rawDate = extractValueNearLabel(
       t,
       /\bDated\s*/i,
-      /(\d{1,2}[\s\-\/\.][A-Za-z0-9]{2,4}[\s\-\/\.,]\d{2,4})/,
+      /(\d{1,2}[\s\-][A-Za-z]{3,9}[\s\-,]\d{2,4})/,
       'high'
     );
     if (rawDate.value) {
