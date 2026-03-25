@@ -7,7 +7,7 @@ import InvoiceFormPane from './invoice/InvoiceFormPane';
 // ── Default empty header ──────────────────────────────────────────────────────
 const EMPTY_HEADER = {
   invoice_number:  '',
-  invoice_date:    new Date().toISOString().split('T')[0],
+  invoice_date:    '',
   due_date:        '',
   seller_name:     '',
   seller_gstin:    '',
@@ -38,6 +38,17 @@ function makeEmptyLineItem() {
   };
 }
 
+function sanitizeHeaderDraft(draftHeader = {}) {
+  const rawInvoiceNumber = String(draftHeader.invoice_number || '').trim();
+  const isLegacyAutoInvoiceNumber = /^INV-\d{10,}$/.test(rawInvoiceNumber);
+  return {
+    ...EMPTY_HEADER,
+    ...draftHeader,
+    invoice_number: isLegacyAutoInvoiceNumber ? '' : rawInvoiceNumber,
+    invoice_date: draftHeader.invoice_date || '',
+  };
+}
+
 // ── Overall confidence summary badge ─────────────────────────────────────────
 function ConfidenceSummaryBadge({ log }) {
   if (!log) return null;
@@ -65,7 +76,7 @@ function ConfidenceSummaryBadge({ log }) {
  *   onClose   () => void       — close handler
  *   onSuccess () => void       — called after successful invoice submission
  */
-export default function InvoiceSplitModal({ open, po, onClose, onSuccess }) {
+export default function InvoiceSplitModal({ open, po, onClose, onSuccess, title = 'Invoice Upload' }) {
   // ── Phase ────────────────────────────────────────────────────────────────────
   const [phase, setPhase] = useState('UPLOAD');
   // UPLOAD | EXTRACTING | FORM | CONFIRMING | SUBMITTING
@@ -167,7 +178,7 @@ export default function InvoiceSplitModal({ open, po, onClose, onSuccess }) {
     const h = data.header || {};
     setHeader({
       invoice_number:  h.invoice_number?.value  ?? '',
-      invoice_date:    h.invoice_date?.value     ?? new Date().toISOString().split('T')[0],
+      invoice_date:    h.invoice_date?.value     ?? '',
       due_date:        h.due_date?.value         ?? '',
       seller_name:     h.seller_name?.value      ?? '',
       seller_gstin:    h.seller_gstin?.value     ?? '',
@@ -219,8 +230,6 @@ export default function InvoiceSplitModal({ open, po, onClose, onSuccess }) {
       setMatchResults([]);
       setHeader(prev => ({
         ...EMPTY_HEADER,
-        invoice_number: `INV-${Date.now()}`,
-        invoice_date:   new Date().toISOString().split('T')[0],
       }));
       setPhase('FORM');
       return;
@@ -348,7 +357,7 @@ export default function InvoiceSplitModal({ open, po, onClose, onSuccess }) {
     try {
       const saved = JSON.parse(localStorage.getItem(`invoice_draft_${po.purchaseorder_id}`));
       if (saved) {
-        if (saved.header)      setHeader(saved.header);
+        if (saved.header)      setHeader(sanitizeHeaderDraft(saved.header));
         if (saved.lineItems)   setLineItems(saved.lineItems);
         if (saved.matchResults) setMatchResults(saved.matchResults);
         if (saved.tds)         setTds(saved.tds);
@@ -434,8 +443,8 @@ export default function InvoiceSplitModal({ open, po, onClose, onSuccess }) {
 
     const formData = new FormData();
     formData.append('purchaseorder_id', po.purchaseorder_id);
-    formData.append('bill_number',      header.invoice_number || `INV-${Date.now()}`);
-    formData.append('date',             header.invoice_date || new Date().toISOString().split('T')[0]);
+    formData.append('bill_number',      header.invoice_number || '');
+    formData.append('date',             header.invoice_date || '');
     formData.append('due_date',         header.due_date || '');
     formData.append('notes',            '');
     formData.append('line_items',       JSON.stringify(finalLineItems));
@@ -477,7 +486,7 @@ export default function InvoiceSplitModal({ open, po, onClose, onSuccess }) {
         {/* ── Fixed Header ─────────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
-            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 shrink-0">Invoice Upload</h2>
+            <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100 shrink-0">{title}</h2>
             <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">— {po?.purchaseorder_number}</span>
             {extractResult?.extraction_log && (
               <ConfidenceSummaryBadge log={extractResult.extraction_log} />
