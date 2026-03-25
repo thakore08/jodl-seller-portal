@@ -19,6 +19,48 @@ class WhatsAppService {
     this.apiVersion     = process.env.WHATSAPP_API_VERSION || 'v19.0';
     this.verifyToken    = process.env.WHATSAPP_VERIFY_TOKEN || 'jodl_verify_token';
     this.baseUrl        = `https://graph.facebook.com/${this.apiVersion}`;
+    this.appId          = process.env.WHATSAPP_APP_ID;
+    this.appSecret      = process.env.WHATSAPP_APP_SECRET;
+
+    // Exchange short-lived token for 60-day token on startup, then refresh every 50 days
+    if (this.appId && this.appSecret && this.accessToken) {
+      this._exchangeAndSchedule();
+    }
+  }
+
+  // ─── Token Auto-Refresh ───────────────────────────────────────────────────
+  async _exchangeToken() {
+    try {
+      const res = await axios.get(`${this.baseUrl}/oauth/access_token`, {
+        params: {
+          grant_type:        'fb_exchange_token',
+          client_id:         this.appId,
+          client_secret:     this.appSecret,
+          fb_exchange_token: this.accessToken,
+        },
+      });
+      this.accessToken = res.data.access_token;
+      const expiresIn  = res.data.expires_in;
+      const days        = expiresIn ? Math.round(expiresIn / 86400) : '~60';
+      console.log(`[WhatsApp] Token exchanged — valid for ${days} days`);
+      return true;
+    } catch (err) {
+      const msg = err.response?.data?.error?.message || err.message;
+      console.warn(`[WhatsApp] Token exchange failed: ${msg}`);
+      return false;
+    }
+  }
+
+  async _exchangeAndSchedule() {
+    await this._exchangeToken();
+    // Refresh every 50 days (tokens last 60 days)
+    const FIFTY_DAYS_MS = 50 * 24 * 60 * 60 * 1000;
+    this._refreshTimer = setInterval(async () => {
+      console.log('[WhatsApp] Scheduled token refresh...');
+      await this._exchangeToken();
+    }, FIFTY_DAYS_MS);
+    // Don't block process exit
+    if (this._refreshTimer.unref) this._refreshTimer.unref();
   }
 
   get isConfigured() {
