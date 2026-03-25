@@ -10,7 +10,7 @@ import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import Modal from '../components/Modal';
 import POStatusStepper from '../components/POStatusStepper';
-import PurchaseBillUploadModal from '../components/PurchaseBillUploadModal';
+import InvoiceSplitModal from '../components/InvoiceSplitModal';
 import RTDLineItemsPanel from '../components/RTDLineItemsPanel';
 import ActivityLogDrawer from '../components/ActivityLogDrawer';
 import { useAuth } from '../context/AuthContext';
@@ -218,7 +218,7 @@ export default function PODetail() {
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState('');
   const [actionMsg,    setActionMsg]    = useState('');
-  const [showPurchaseBill, setShowPurchaseBill] = useState(false);
+  const [showInvoice,  setShowInvoice]  = useState(false);
   const [showAccept,   setShowAccept]   = useState(false);
   const [showReject,   setShowReject]   = useState(false);
   const [showActivity, setShowActivity] = useState(false);
@@ -394,10 +394,10 @@ export default function PODetail() {
             )}
             {contextualAction === 'create_invoice' && (
               <button
-                onClick={() => setShowPurchaseBill(true)}
+                onClick={() => setShowInvoice(true)}
                 className="btn-primary"
               >
-                <FileText className="h-4 w-4" /> Upload Purchase Bill
+                <FileText className="h-4 w-4" /> Create Invoice
               </button>
             )}
 
@@ -583,14 +583,14 @@ export default function PODetail() {
 
       {/* ── Modals ───────────────────────────────────────────────────────────── */}
 
-      {/* Purchase Bill Upload Modal */}
-      <PurchaseBillUploadModal
-        open={showPurchaseBill}
+      {/* Invoice Split Modal */}
+      <InvoiceSplitModal
+        open={showInvoice}
         po={po}
-        onClose={() => setShowPurchaseBill(false)}
+        onClose={() => setShowInvoice(false)}
         onSuccess={() => {
-          setShowPurchaseBill(false);
-          setActionMsg('Purchase bill submitted successfully!');
+          setShowInvoice(false);
+          setActionMsg('Invoice posted to Zoho Books successfully!');
           loadPO();
         }}
       />
