@@ -298,6 +298,44 @@ function extractDateField(text, patterns) {
   return { value: normaliseDate(field.value), confidence: field.confidence };
 }
 
+// ─── GSTIN-proximity company name extraction ──────────────────────────────────
+// Indian invoices: company name appears above an address block, which ends with
+// "GSTIN/UIN : <gstin>".  We walk backwards from the GSTIN label, skipping lines
+// that look like addresses, and return the first non-address line = company name.
+function extractCompanyNearGstin(text, gstinLabelIndex) {
+  if (gstinLabelIndex < 0) return { value: null, confidence: 'low' };
+  const block = text.slice(Math.max(0, gstinLabelIndex - 500), gstinLabelIndex);
+  const lines  = block.split('\n').map(l => l.trim()).filter(l => l.length >= 2);
+
+  const ADDRESS_RE  = /^\d|@|www\.|http|\b\d{6}\b|\b(?:ground|floor|road|street|nagar|park|phase|plot|building|tower|block|sector|mumbai|delhi|pune|kolkata|chennai|hyderabad|bangalore|surat|ahmedabad|gujarat|maharashtra|rajasthan|karnataka|tamilnadu|telangana)\b/i;
+  const LABEL_RE    = /gstin|pan\b|cin\b|irn\b|ack\b|state\s*name|e-?mail|phone|fax|code\s*:/i;
+  const ADDR_PUNCT  = /^[A-Z]-\d|^\d+-?[A-Z]?\s*[\/,]|^Near\b|^Opp\.|^Behind\b/i;
+
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (ADDRESS_RE.test(line))  continue;
+    if (LABEL_RE.test(line))    continue;
+    if (ADDR_PUNCT.test(line))  continue;
+    if (line.length < 3)        continue;
+    return { value: line, confidence: 'high' };
+  }
+  return { value: null, confidence: 'low' };
+}
+
+// ─── Label-proximity value extraction ────────────────────────────────────────
+// Finds labelRe in the text, then scans the NEXT 150 chars (including newlines)
+// for valueRe.  This handles both same-line and next-line value placement —
+// avoiding the \n+ requirement that breaks when pdf-parse collapses columns.
+function extractValueNearLabel(text, labelRe, valueRe, confidence) {
+  const labelMatch = text.match(labelRe);
+  if (!labelMatch) return { value: null, confidence: 'low' };
+  const searchStart = labelMatch.index + labelMatch[0].length;
+  const window = text.slice(searchStart, searchStart + 150);
+  const valMatch = window.match(valueRe);
+  if (valMatch) return { value: (valMatch[1] || valMatch[0]).trim(), confidence };
+  return { value: null, confidence: 'low' };
+}
+
 // ─── Header field extraction ──────────────────────────────────────────────────
 function extractHeader(text) {
   const t = text;
@@ -467,7 +505,10 @@ function extractHeader(text) {
 
   // Place of supply
   const placeOfSupply = extractField(t, [
-    { re: /place\s*of\s*supply[:\s]*([A-Za-z\s]{3,30})/i, confidence: 'medium' },
+    // Indian GST invoice standard: "State Name : Maharashtra, Code : 27"
+    { re: /State\s*Name\s*:\s*([A-Za-z][A-Za-z\s]{2,29})(?:,|\s*Code)/i, confidence: 'medium' },
+    // Explicit "Place of Supply:" label (fallback)
+    { re: /place\s*of\s*supply[:\s]*([A-Za-z\s]{3,30})/i,                confidence: 'medium' },
   ]);
 
   // Taxable value

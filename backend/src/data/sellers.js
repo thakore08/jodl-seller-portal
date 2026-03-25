@@ -72,9 +72,9 @@ const sellers = [
     company: 'Heena Steel LLP',
     vendor_id: '1988755000019260007', // Zoho Books vendor ID for Heena Steel LLP (V1333-1356-JODL)
     role: 'seller_admin',
-    phone: '',
-    whatsapp_enabled: false,
-    whatsapp_number: '',
+    phone: '+917738305384',
+    whatsapp_enabled: true,
+    whatsapp_number: '+917738305384',
     notifications: {
       new_po: true,
       po_updated: true,

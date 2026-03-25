@@ -4,8 +4,10 @@ const path     = require('path');
 const { v4: uuidv4 } = require('uuid');
 const zoho           = require('../services/zohoBooksService');
 const whatsapp       = require('../services/whatsappService');
+const sessionSvc     = require('../services/whatsappSessionService');
 const pdfExtractor   = require('../services/pdfExtractorService');
 const invoiceMatcher = require('../services/invoiceMatchingService');
+const { getWaInvoice, updateWaInvoice, listWaInvoices } = require('../data/waInvoices');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
 const router = express.Router();
@@ -86,6 +88,10 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
   // Matching disabled temporarily for testing
   const matchResults = [];
 
+  // Log raw text on the server so it appears in Render logs regardless of client environment
+  console.log('[Invoice OCR] raw_text for', req.file.originalname, ':\n', extraction.raw_text);
+  console.log('[Invoice OCR] header result:', JSON.stringify(extraction.header, null, 2));
+
   res.json({
     success:        true,
     is_scanned:     extraction.is_scanned || false,
@@ -96,13 +102,107 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
     line_items:     extraction.line_items,
     match_results:  matchResults,
     extraction_log: extraction.extraction_log,
+    raw_text:       extraction.raw_text,   // always include for client-side debugging
   });
+});
+
+// ─── GET /api/invoices/whatsapp — WhatsApp-uploaded invoices (admin review) ───
+router.get('/whatsapp', async (req, res) => {
+  const { status = 'pending_admin_review' } = req.query;
+  const records = listWaInvoices({ status: status || undefined });
+  res.json({ success: true, invoices: records, count: records.length });
+});
+
+// ─── POST /api/invoices/:id/confirm — Post WA invoice to Zoho Books ───────────
+router.post('/:id/confirm', async (req, res) => {
+  const waInvoice = getWaInvoice(req.params.id);
+  if (!waInvoice) {
+    return res.status(404).json({ error: true, message: 'WA invoice not found' });
+  }
+
+  if (waInvoice.status === 'posted') {
+    return res.status(400).json({ error: true, message: 'Invoice already posted to Zoho Books' });
+  }
+
+  const extracted = waInvoice.extractedData?.header || {};
+  const today     = new Date().toISOString().split('T')[0];
+
+  // Build bill payload from extracted data
+  const billPayload = {
+    vendor_id:         req.seller.vendor_id,
+    date:              extracted.invoice_date || today,
+    bill_number:       extracted.invoice_number || `WA-${Date.now()}`,
+    purchaseorder_ids: waInvoice.poId ? [waInvoice.poId] : [],
+    line_items:        (waInvoice.extractedData?.line_items || []).map(item => ({
+      name:        item.description || item.name || 'Line item',
+      quantity:    item.quantity || 1,
+      rate:        item.unit_price || item.rate || 0,
+      account_id:  item.account_id || '',
+      item_id:     item.item_id    || '',
+    })),
+    notes: `Invoice received via WhatsApp. WA record ID: ${waInvoice.id}`,
+  };
+
+  const result = await zoho.createBill(billPayload);
+  const billId  = result.bill?.bill_id;
+
+  updateWaInvoice(waInvoice.id, { status: 'posted', zohoBillId: billId });
+
+  // Send WhatsApp confirmation to vendor
+  if (whatsapp.isConfigured && waInvoice.sellerPhone) {
+    whatsapp.sendInvoiceConfirmation({
+      to:            `+${waInvoice.sellerPhone}`,
+      invoiceNumber: extracted.invoice_number || billPayload.bill_number,
+      poNumber:      waInvoice.poNumber,
+      amount:        extracted.total_amount || 0,
+    }).catch(err => console.warn('[WhatsApp] Invoice confirmation failed:', err.message));
+  }
+
+  res.json({ success: true, bill: result.bill, waInvoiceId: waInvoice.id });
+});
+
+// ─── POST /api/invoices/:id/request-correction — Ask vendor for corrected invoice
+router.post('/:id/request-correction', async (req, res) => {
+  const waInvoice = getWaInvoice(req.params.id);
+  if (!waInvoice) {
+    return res.status(404).json({ error: true, message: 'WA invoice not found' });
+  }
+
+  const { note } = req.body;
+  if (!note) {
+    return res.status(400).json({ error: true, message: 'Correction note is required' });
+  }
+
+  // Send WhatsApp message to vendor
+  if (whatsapp.isConfigured && waInvoice.sellerPhone) {
+    await whatsapp.sendInvoiceCorrectionRequest({
+      to:       `+${waInvoice.sellerPhone}`,
+      poNumber: waInvoice.poNumber,
+      adminNote: note,
+    });
+  }
+
+  // Revert session to awaiting_invoice so vendor can re-upload
+  sessionSvc.updateSession(waInvoice.sellerPhone, { state: 'awaiting_invoice', invoiceId: null });
+
+  updateWaInvoice(waInvoice.id, { status: 'correction_requested', adminNote: note });
+
+  res.json({ success: true, message: 'Correction request sent to vendor' });
 });
 
 // ─── GET /api/invoices ────────────────────────────────────────────────────────
 router.get('/', async (req, res) => {
-  const { status, page = 1, date_start, date_end, bill_number } = req.query;
+  const { status, source, page = 1, date_start, date_end, bill_number } = req.query;
   const vendorId = req.seller.vendor_id;
+
+  // If requesting WhatsApp-sourced invoices
+  if (source === 'whatsapp') {
+    const records = listWaInvoices({
+      status:   status   || undefined,
+      sellerId: req.seller.id,
+    });
+    return res.json({ bills: records, whatsapp_source: true });
+  }
 
   const params = { page };
   if (status)      params.status      = status;
