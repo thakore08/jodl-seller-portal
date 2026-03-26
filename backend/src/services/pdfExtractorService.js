@@ -143,6 +143,15 @@ function normaliseDate(raw) {
     const mo = MONTH_MAP[m[2].toLowerCase().slice(0,3)];
     if (mo) return `${m[3]}-${mo}-${m[1].padStart(2,'0')}`;
   }
+  // DD MMM YY — 2-digit year (e.g. 14-Mar-26 used in Indian e-invoices) → treat as 20YY
+  m = s.match(/^(\d{1,2})[\s\-]([A-Za-z]{3,9})[\s\-,](\d{2})$/);
+  if (m) {
+    const mo = MONTH_MAP[m[2].toLowerCase().slice(0, 3)];
+    if (mo) return `20${m[3]}-${mo}-${m[1].padStart(2, '0')}`;
+  }
+  // DD/MM/YY — 2-digit year
+  m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2})$/);
+  if (m) return `20${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
   return null;
 }
 
@@ -167,23 +176,82 @@ function extractDateField(text, patterns) {
   return { value: normaliseDate(field.value), confidence: field.confidence };
 }
 
+// ─── GSTIN-proximity company name extraction ──────────────────────────────────
+// Indian invoices: company name appears above an address block, which ends with
+// "GSTIN/UIN : <gstin>".  We walk backwards from the GSTIN label, skipping lines
+// that look like addresses, and return the first non-address line = company name.
+function extractCompanyNearGstin(text, gstinLabelIndex) {
+  if (gstinLabelIndex < 0) return { value: null, confidence: 'low' };
+  const block = text.slice(Math.max(0, gstinLabelIndex - 500), gstinLabelIndex);
+  const lines  = block.split('\n').map(l => l.trim()).filter(l => l.length >= 2);
+
+  const ADDRESS_RE  = /^\d|@|www\.|http|\b\d{6}\b|\b(?:ground|floor|road|street|nagar|park|phase|plot|building|tower|block|sector|mumbai|delhi|pune|kolkata|chennai|hyderabad|bangalore|surat|ahmedabad|gujarat|maharashtra|rajasthan|karnataka|tamilnadu|telangana)\b/i;
+  const LABEL_RE    = /gstin|pan\b|cin\b|irn\b|ack\b|state\s*name|e-?mail|phone|fax|code\s*:/i;
+  const ADDR_PUNCT  = /^[A-Z]-\d|^\d+-?[A-Z]?\s*[\/,]|^Near\b|^Opp\.|^Behind\b/i;
+
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (ADDRESS_RE.test(line))  continue;
+    if (LABEL_RE.test(line))    continue;
+    if (ADDR_PUNCT.test(line))  continue;
+    if (line.length < 3)        continue;
+    return { value: line, confidence: 'high' };
+  }
+  return { value: null, confidence: 'low' };
+}
+
+// ─── Label-proximity value extraction ────────────────────────────────────────
+// Finds labelRe in the text, then scans the NEXT 150 chars (including newlines)
+// for valueRe.  This handles both same-line and next-line value placement —
+// avoiding the \n+ requirement that breaks when pdf-parse collapses columns.
+function extractValueNearLabel(text, labelRe, valueRe, confidence) {
+  const labelMatch = text.match(labelRe);
+  if (!labelMatch) return { value: null, confidence: 'low' };
+  const searchStart = labelMatch.index + labelMatch[0].length;
+  const window = text.slice(searchStart, searchStart + 150);
+  const valMatch = window.match(valueRe);
+  if (valMatch) return { value: (valMatch[1] || valMatch[0]).trim(), confidence };
+  return { value: null, confidence: 'low' };
+}
+
 // ─── Header field extraction ──────────────────────────────────────────────────
 function extractHeader(text) {
   const t = text;
 
-  // Invoice number
-  const invoiceNumber = extractField(t, [
-    { re: /(?:invoice\s*(?:no|number|#)|bill\s*(?:no|number))[.\s:#]*([A-Z0-9][A-Z0-9\-\/]{2,30})/i, confidence: 'high' },
-    { re: /(?:tax\s*invoice)\s*(?:no|#)?[.:\s]*([A-Z0-9][A-Z0-9\-\/]{2,30})/i,                       confidence: 'high' },
-    { re: /^(INV|BILL|TI|SI|GST)[\/\-]?[\d]{4}[\/\-]?[\d]{1,6}/im,                                   confidence: 'medium' },
-  ]);
+  // Invoice number — use proximity search so it works whether the value is on the
+  // same line or the next line after "Invoice No." (pdf-parse varies per PDF generator)
+  const invoiceNumber = (() => {
+    // Primary: scan 150 chars after "Invoice No." label for the first invoice-like token
+    const near = extractValueNearLabel(t, /Invoice\s*No\.?\s*/i, /([A-Z0-9][A-Z0-9\-\/]{3,30})/, 'high');
+    if (near.value) return near;
+    // Fallbacks for other common label forms
+    return extractField(t, [
+      { re: /(?:invoice\s*(?:no|number|#)|bill\s*(?:no|number))[.\s:#]*([A-Z0-9][A-Z0-9\-\/]{2,30})/i, confidence: 'high' },
+      { re: /^(INV|BILL|TI|SI|GST)[\/\-]?[\d]{4}[\/\-]?[\d]{1,6}/im,                                   confidence: 'medium' },
+    ]);
+  })();
 
-  // Invoice date
-  const invoiceDate = extractDateField(t, [
-    { re: /(?:invoice\s*date|date\s*of\s*issue|bill\s*date)[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})/i, confidence: 'high' },
-    { re: /(?:invoice\s*date|date\s*of\s*issue|bill\s*date)[:\s]*(\d{1,2}[\s\-][A-Za-z]{3,9}[\s\-,]\d{4})/i, confidence: 'high' },
-    { re: /\bdate[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})/i,                                            confidence: 'medium' },
-  ]);
+  // Invoice date — scan 150 chars after "Dated" (skips any intervening invoice/e-way numbers)
+  const invoiceDate = (() => {
+    // Primary: proximity search after "Dated" label — handles same-line or next-line
+    const rawDate = extractValueNearLabel(
+      t,
+      /\bDated\s*/i,
+      /(\d{1,2}[\s\-][A-Za-z]{3,9}[\s\-,]\d{2,4})/,
+      'high'
+    );
+    if (rawDate.value) {
+      const normalised = normaliseDate(rawDate.value);
+      if (normalised) return { value: normalised, confidence: 'high' };
+    }
+    // Fallback: standard "Invoice Date" / "Bill Date" labels
+    return extractDateField(t, [
+      { re: /(?:invoice\s*date|date\s*of\s*issue|bill\s*date)[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})/i,   confidence: 'high' },
+      { re: /(?:invoice\s*date|date\s*of\s*issue|bill\s*date)[:\s]*(\d{1,2}[\s\-][A-Za-z]{3,9}[\s\-,]\d{4})/i, confidence: 'high' },
+      { re: /\bDated[:\s]*(\d{1,2}[\s\-][A-Za-z]{3,9}[\s\-,]\d{2,4})/i,                                        confidence: 'high' },
+      { re: /\bdate[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})/i,                                              confidence: 'medium' },
+    ]);
+  })();
 
   // Due date
   const dueDate = extractDateField(t, [
@@ -192,28 +260,50 @@ function extractHeader(text) {
   ]);
 
   // GSTINs (first = seller, second = buyer)
+  // Some IRP-generated PDFs insert a space within the GSTIN; allow optional spaces and strip them.
+  const GSTIN_RE_SPACED = /\b([0-9]{2}\s*[A-Z]{5}\s*[0-9]{4}\s*[A-Z][1-9A-Z]Z[0-9A-Z])\b/g;
   const gstins = [];
   let gm;
-  const gstReCopy = new RegExp(GSTIN_RE.source, 'g');
+  const gstReCopy = new RegExp(GSTIN_RE_SPACED.source, 'g');
   while ((gm = gstReCopy.exec(t)) !== null) {
-    if (!gstins.includes(gm[1])) gstins.push(gm[1]);
+    const clean = gm[1].replace(/\s+/g, '');   // strip any spaces inside GSTIN
+    if (!gstins.includes(clean)) gstins.push(clean);
     if (gstins.length === 2) break;
   }
   const sellerGstin = { value: gstins[0] || null, confidence: gstins[0] ? 'high' : 'low' };
   const buyerGstin  = { value: gstins[1] || null, confidence: gstins[1] ? 'high' : 'low' };
 
-  // Seller / buyer name (lines near the GSTINs)
-  const sellerName = extractField(t, [
-    { re: /(?:seller|from|supplier|vendor|consignor)\s*(?:name)?[:\s]*([A-Za-z][\w\s&.,()-]{2,60})/i, confidence: 'medium' },
-    { re: /^([A-Z][A-Z\s&.,()-]{3,50}(?:LTD|LIMITED|PVT|PRIVATE|INDUSTRIES|STEEL|CORP|CO\.?))\b/im, confidence: 'low' },
-  ]);
-  const buyerName = extractField(t, [
-    { re: /(?:buyer|bill\s*to|ship\s*to|sold\s*to|purchaser)\s*(?:name)?[:\s]*([A-Za-z][\w\s&.,()-]{2,60})/i, confidence: 'medium' },
-  ]);
+  // Seller / buyer name — use GSTIN-proximity extraction.
+  // Walk backwards from each "GSTIN/UIN" label, skipping address lines, to find the
+  // company name that heads the address block.  Falls back to keyword patterns.
+  const firstGstinLabelIdx  = t.search(/GSTIN\/UIN\s*[:\s]/i);
+  const secondGstinLabelIdx = (() => {
+    if (firstGstinLabelIdx < 0) return -1;
+    const after  = t.slice(firstGstinLabelIdx + 10);
+    const second = after.search(/GSTIN\/UIN\s*[:\s]/i);
+    return second < 0 ? -1 : firstGstinLabelIdx + 10 + second;
+  })();
+
+  const sellerName = firstGstinLabelIdx >= 0
+    ? extractCompanyNearGstin(t, firstGstinLabelIdx)
+    : extractField(t, [
+        { re: /(?:seller|from|supplier|vendor|consignor)\s*(?:name)?[:\s]*([A-Za-z][\w\s&.,()-]{2,60})/i, confidence: 'medium' },
+        { re: /^([A-Z][A-Za-z\s&.,()-]{3,50}(?:LLP|LTD|LIMITED|PVT|PRIVATE|INDUSTRIES|STEEL|CORP|CO\.?))\s*$/im, confidence: 'low' },
+      ]);
+
+  const buyerName = secondGstinLabelIdx >= 0
+    ? extractCompanyNearGstin(t, secondGstinLabelIdx)
+    : extractField(t, [
+        { re: /(?:buyer|bill\s*to|consignee)\s*[\(\)\w\s]*\n+\s*([A-Za-z][\w\s&.,()-]{2,60})/i, confidence: 'high' },
+        { re: /(?:buyer|bill\s*to|ship\s*to|sold\s*to|purchaser)\s*(?:name)?[:\s]*([A-Za-z][\w\s&.,()-]{2,60})/i, confidence: 'medium' },
+      ]);
 
   // Place of supply
   const placeOfSupply = extractField(t, [
-    { re: /place\s*of\s*supply[:\s]*([A-Za-z\s]{3,30})/i, confidence: 'medium' },
+    // Indian GST invoice standard: "State Name : Maharashtra, Code : 27"
+    { re: /State\s*Name\s*:\s*([A-Za-z][A-Za-z\s]{2,29})(?:,|\s*Code)/i, confidence: 'medium' },
+    // Explicit "Place of Supply:" label (fallback)
+    { re: /place\s*of\s*supply[:\s]*([A-Za-z\s]{3,30})/i,                confidence: 'medium' },
   ]);
 
   // Taxable value

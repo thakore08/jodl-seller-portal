@@ -64,6 +64,23 @@ const sellers = [
       invoice_posted: true,
     },
   },
+  {
+    id: '4',
+    email: 'heena@demo.com',
+    password: bcrypt.hashSync('password123', 10),
+    name: 'Heena Steel User',
+    company: 'Heena Steel LLP',
+    vendor_id: '1988755000019260007', // Zoho Books vendor ID for Heena Steel LLP (V1333-1356-JODL)
+    role: 'seller_admin',
+    phone: '+917738305384',
+    whatsapp_enabled: true,
+    whatsapp_number: '+917738305384',
+    notifications: {
+      new_po: true,
+      po_updated: true,
+      invoice_posted: true,
+    },
+  },
 ];
 
 /**

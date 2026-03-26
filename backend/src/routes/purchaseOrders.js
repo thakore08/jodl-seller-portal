@@ -45,6 +45,9 @@ const poRTDData = new Map();
  */
 const poActivityLog = new Map();
 
+// Track POs for which a WhatsApp notification has already been sent this session
+const notifiedPoIds = new Set();
+
 // Helper: append an event to a PO's activity log
 function appendActivity(poId, event, actor, details = {}) {
   if (!poActivityLog.has(poId)) poActivityLog.set(poId, []);
@@ -73,17 +76,34 @@ router.get('/', async (req, res) => {
   const { status, page = 1, per_page = 25 } = req.query;
   const vendorId = req.seller.vendor_id;
 
-  const params = { page, per_page };
+  // Overfetch 5× to compensate for draft POs being filtered client-side.
+  // Zoho returns POs newest-first; the most recent batch may be all drafts.
+  // Fetching more ensures we get enough non-draft items after filtering.
+  const zohoPerPage = Math.min(Number(per_page) * 5, 200);
+  const params = { page, per_page: zohoPerPage };
   if (status)   params.status    = status;
   if (vendorId) params.vendor_id = vendorId;
 
   const data = await zoho.getPurchaseOrders(params);
 
-  // Merge local_status and filter out draft POs (never shown to sellers)
+  // Filter out draft POs (never shown to sellers) then slice to requested count
   if (data.purchaseorders) {
-    data.purchaseorders = data.purchaseorders
+    const filtered = data.purchaseorders
       .filter(po => po.status !== 'draft')
       .map(mergeLocalStatus);
+    data.purchaseorders = filtered.slice(0, Number(per_page));
+
+    // Auto-trigger WhatsApp notification for newly-seen issued/open POs
+    if (whatsapp.isConfigured) {
+      filtered
+        .filter(po => (po.status === 'issued' || po.status === 'open') && !notifiedPoIds.has(po.purchaseorder_id))
+        .forEach(po => {
+          notifiedPoIds.add(po.purchaseorder_id); // add immediately to prevent race-condition duplicates
+          whatsapp.triggerPONotification(po).catch(err =>
+            console.error(`[AutoNotify] WA notification failed for ${po.purchaseorder_number}:`, err.message)
+          );
+        });
+    }
   }
 
   res.json(data);
@@ -414,7 +434,20 @@ router.post('/:id/notify', async (req, res) => {
   }
 
   const { phone } = req.body;
-  const to = phone || req.seller.whatsapp_number;
+  let to = phone || req.seller.whatsapp_number;
+
+  // Auto-fetch from Zoho Books vendor contact if not set locally
+  if (!to && req.seller.vendor_id) {
+    try {
+      const vendorData = await zoho.getVendorById(req.seller.vendor_id);
+      const contact = vendorData?.contact;
+      to = contact?.mobile || contact?.phone || null;
+      if (to) console.log(`[WhatsApp] Using Zoho phone for vendor ${req.seller.vendor_id}: ${to}`);
+    } catch (err) {
+      console.warn('[WhatsApp] Could not fetch vendor phone from Zoho:', err.message);
+    }
+  }
+
   if (!to) {
     return res.status(400).json({ error: true, message: 'No phone number to send notification to' });
   }

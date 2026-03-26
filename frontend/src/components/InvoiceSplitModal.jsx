@@ -239,6 +239,10 @@ export default function InvoiceSplitModal({ open, po, onClose, onSuccess }) {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
 
+      // Debug: log raw extracted text + header results to console (dev only)
+      if (data.raw_text) console.log('[Invoice OCR] raw_text:\n', data.raw_text);
+      console.log('[Invoice OCR] header:', data.header, '| log:', data.extraction_log);
+
       setExtractResult(data);
 
       if (data.is_scanned) {
