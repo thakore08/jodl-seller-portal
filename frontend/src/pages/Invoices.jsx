@@ -228,9 +228,26 @@ export default function Invoices() {
   }
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="space-y-5">
+      <div className="page-hero">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="hero-title">Invoice Intelligence</h2>
+            <p className="hero-subtitle">Review OCR-extracted bill data, mapping confidence, and posting status.</p>
+            <div className="mt-3 flex items-center gap-2">
+              <span className="chip-soft">OCR Assisted</span>
+              <span className="chip-soft">Finance Validation</span>
+            </div>
+          </div>
+          <span className="status-live text-white/90">
+            <Sparkles className="h-3.5 w-3.5" />
+            Synced
+          </span>
+        </div>
+      </div>
+
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">Invoices</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">

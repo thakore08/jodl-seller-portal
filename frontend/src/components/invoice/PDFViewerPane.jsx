@@ -31,6 +31,7 @@ export default function PDFViewerPane({ file, activeSearchTerm, isScanned }) {
   const [scale, setScale]             = useState(1.2);
   const [fitWidth, setFitWidth]       = useState(true);
   const [hasError, setHasError]       = useState(false);
+  const [fallbackUrl, setFallbackUrl] = useState(null);
   const [containerWidth, setContainerWidth] = useState(600);
   const containerRef = useRef(null);
 
@@ -77,6 +78,13 @@ export default function PDFViewerPane({ file, activeSearchTerm, isScanned }) {
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [file]);
+  // Revoke fallback URL when file changes
+  useEffect(() => {
+    if (fallbackUrl) URL.revokeObjectURL(fallbackUrl);
+    setFallbackUrl(null);
+    setHasError(false);
+    setNumPages(null);
   }, [file]);
 
   const zoomIn  = () => setScale(s => Math.min(3.0, parseFloat((s + 0.15).toFixed(2))));
@@ -149,15 +157,38 @@ export default function PDFViewerPane({ file, activeSearchTerm, isScanned }) {
 
       {/* PDF scroll area */}
       {hasError ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6">
-          <FileX className="h-10 w-10 text-gray-400 dark:text-gray-500" />
-          <p className="text-sm text-gray-500 dark:text-gray-400">Preview unavailable</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 text-center">
-            The PDF could not be rendered. Please fill the form manually.
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 p-4">
+          {fallbackUrl ? (
+            <object
+              data={fallbackUrl}
+              type="application/pdf"
+              className="w-full h-full min-h-[400px] rounded border border-gray-200 dark:border-gray-700 bg-white"
+            >
+              <p className="text-sm text-center text-gray-500 dark:text-gray-400 py-6">
+                PDF preview fallback is unavailable in this browser.
+              </p>
+            </object>
+          ) : (
+            <FileX className="h-10 w-10 text-gray-400 dark:text-gray-500" />
+          )}
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Preview unavailable — rendering fallback shown below.
           </p>
-          <button onClick={handleDownload} className="btn-outline text-xs">
-            <Download className="h-3.5 w-3.5" /> Download Original
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (!file) return;
+                const url = URL.createObjectURL(file);
+                setFallbackUrl(url);
+              }}
+              className="btn-outline text-xs"
+            >
+              <Download className="h-3.5 w-3.5" /> Load Fallback
+            </button>
+            <button onClick={handleDownload} className="btn-outline text-xs">
+              <Download className="h-3.5 w-3.5" /> Download Original
+            </button>
+          </div>
         </div>
       ) : (
         <div

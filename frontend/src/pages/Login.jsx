@@ -27,19 +27,22 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-brand-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
-      <div className="w-full max-w-sm">
+    <div className="relative flex min-h-screen items-center justify-center p-4 overflow-hidden">
+      <div className="pointer-events-none absolute -top-24 -left-20 h-72 w-72 rounded-full bg-brand-500/25 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-20 -right-24 h-80 w-80 rounded-full bg-signal-500/20 blur-3xl" />
+
+      <div className="w-full max-w-sm relative z-10">
         {/* Brand */}
         <div className="mb-8 flex flex-col items-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-600 shadow-lg mb-4">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500 via-brand-600 to-signal-500 shadow-xl mb-4">
             <Package className="h-7 w-7 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">JODL Seller Portal</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Sign in to manage your orders</p>
+          <h1 className="text-2xl font-black tracking-tight text-gray-900 dark:text-gray-100">JODL Seller Portal</h1>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Sign in to manage purchase bills and operations</p>
         </div>
 
         {/* Form */}
-        <div className="card p-8 shadow-lg">
+        <div className="card p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
               <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
@@ -90,7 +93,7 @@ export default function Login() {
               </div>
             </div>
 
-            <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-2.5">
+            <button type="submit" disabled={loading} className="btn-primary shimmer-on-hover w-full justify-center py-2.5">
               {loading ? (
                 <span className="flex items-center gap-2">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
@@ -100,8 +103,11 @@ export default function Login() {
             </button>
           </form>
 
-          <p className="mt-4 text-center text-xs text-gray-400 dark:text-gray-500">
-            Contact your administrator for access credentials.
+          <p className="mt-4 text-center text-sm text-gray-600 dark:text-gray-400">
+            New seller?{' '}
+            <Link to="/register" className="font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300">
+              Create account
+            </Link>
           </p>
         </div>
       </div>
