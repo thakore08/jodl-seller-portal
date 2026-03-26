@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw, Search, FileText, Filter } from 'lucide-react';
+import { RefreshCw, Search, FileText, Filter, Sparkles } from 'lucide-react';
 import { format } from 'date-fns';
 import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
@@ -65,26 +65,43 @@ export default function Invoices() {
   );
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="space-y-5">
+      <div className="page-hero">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="hero-title">Invoice Intelligence</h2>
+            <p className="hero-subtitle">Review OCR-extracted bill data, mapping confidence, and posting status.</p>
+            <div className="mt-3 flex items-center gap-2">
+              <span className="chip-soft">OCR Assisted</span>
+              <span className="chip-soft">Finance Validation</span>
+            </div>
+          </div>
+          <span className="status-live text-white/90">
+            <Sparkles className="h-3.5 w-3.5" />
+            Synced
+          </span>
+        </div>
+      </div>
+
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">Invoices</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+          <h1 className="text-base font-bold text-gray-900 dark:text-gray-100">Invoices</h1>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {!loading && `${filtered.length} invoice${filtered.length !== 1 ? 's' : ''}`}
           </p>
         </div>
-        <button onClick={loadBills} disabled={loading} className="btn-outline">
+        <button onClick={loadBills} disabled={loading} className="btn-outline shimmer-on-hover">
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col gap-3">
+      <div className="control-dock flex flex-col gap-3">
         {/* Row 1: search + date range */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[180px] max-w-xs">
+          <div className="relative flex-1 min-w-0 sm:min-w-[260px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-gray-500" />
             <input
               type="text"
@@ -94,25 +111,25 @@ export default function Invoices() {
               onChange={e => setSearch(e.target.value)}
             />
           </div>
-          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-            <label className="text-xs whitespace-nowrap">From</label>
-            <input type="date" className="input text-xs py-1.5 w-36" value={from} onChange={e => setFrom(e.target.value)} />
-            <label className="text-xs whitespace-nowrap">To</label>
-            <input type="date" className="input text-xs py-1.5 w-36" value={to}   onChange={e => setTo(e.target.value)} />
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
+            <label className="dock-label">From</label>
+            <input type="date" className="input w-full text-xs py-1.5 sm:w-36" value={from} onChange={e => setFrom(e.target.value)} />
+            <label className="dock-label">To</label>
+            <input type="date" className="input w-full text-xs py-1.5 sm:w-36" value={to} onChange={e => setTo(e.target.value)} />
           </div>
         </div>
 
         {/* Row 2: status tabs */}
-        <div className="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1 w-fit">
-          <Filter className="ml-1 h-4 w-4 text-gray-400 dark:text-gray-500 shrink-0" />
+        <div className="dock-tabs">
+          <Filter className="ml-1 h-4 w-4 text-gray-500 dark:text-slate-300 shrink-0" />
           {STATUS_FILTERS.map(f => (
             <button
               key={f.value}
               onClick={() => setStatus(f.value)}
-              className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+              className={`rounded-lg px-3 py-1 text-xs font-semibold transition-colors ${
                 status === f.value
-                  ? 'bg-brand-600 text-white'
-                  : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
+                  ? 'bg-gradient-to-r from-brand-600 to-brand-500 text-white'
+                  : 'text-gray-600 dark:text-slate-200/90 hover:bg-gray-100 dark:hover:bg-slate-700/80'
               }`}
             >
               {f.label}
@@ -143,9 +160,9 @@ export default function Invoices() {
       ) : (
         <>
           {/* Mobile cards */}
-          <ul className="space-y-3 md:hidden">
+          <ul className="space-y-3 md:hidden motion-stagger">
             {filtered.map(b => (
-              <li key={b.bill_id} className="card p-4">
+              <li key={b.bill_id} className="card glow-hover p-4">
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <p className="text-sm font-bold text-brand-600 dark:text-brand-400">{b.bill_number}</p>
                   <StatusBadge status={getBadgeStatus(b)} />
@@ -197,7 +214,7 @@ export default function Invoices() {
                       </td>
                       <td className="table-td"><StatusBadge status={getBadgeStatus(b)} /></td>
                       <td className="table-td">
-                        <Link to={`/payments/${b.bill_id}`} className="btn-outline px-3 py-1 text-xs">View</Link>
+                        <Link to={`/payments/${b.bill_id}`} className="btn-table-action">View</Link>
                       </td>
                     </tr>
                   ))}
