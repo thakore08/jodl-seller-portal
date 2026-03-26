@@ -1,12 +1,30 @@
-const express  = require('express');
-const whatsapp = require('../services/whatsappService');
-const zoho     = require('../services/zohoBooksService');
-const sellers  = require('../data/sellers');
+/**
+ * WhatsApp Webhook & Notification Routes
+ *
+ * Handles the complete WhatsApp workflow:
+ *  Phase 1: PO notification (sent from Zoho webhook / manual trigger)
+ *  Phase 2: Vendor accepts/rejects PO via WhatsApp reply
+ *  Phase 3: Vendor uploads invoice via WhatsApp
+ */
+
+const express     = require('express');
+const path        = require('path');
+const fs          = require('fs');
+const whatsapp    = require('../services/whatsappService');
+const zoho        = require('../services/zohoBooksService');
+const sessionSvc  = require('../services/whatsappSessionService');
+const pdfExtractor   = require('../services/pdfExtractorService');
+const invoiceMatcher = require('../services/invoiceMatchingService');
+const { sellers }    = require('../data/sellers');
+const { createWaInvoice } = require('../data/waInvoices');
 const { authenticate } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-// ─── GET /api/whatsapp/webhook — Meta verification handshake ──────────────────
+// Max file size for WhatsApp media (16 MB Meta limit)
+const MAX_MEDIA_BYTES = 16 * 1024 * 1024;
+
+// ─── GET /api/whatsapp/webhook — Meta verification handshake ─────────────────
 router.get('/webhook', (req, res) => {
   const mode      = req.query['hub.mode'];
   const token     = req.query['hub.verify_token'];
@@ -22,7 +40,7 @@ router.get('/webhook', (req, res) => {
 
 // ─── POST /api/whatsapp/webhook — Incoming messages ──────────────────────────
 router.post('/webhook', async (req, res) => {
-  // Acknowledge immediately (Meta requires 200 within 20 seconds)
+  // Acknowledge immediately — Meta/WhatsApp requires 200 within 20 seconds
   res.sendStatus(200);
 
   const message = whatsapp.parseWebhookMessage(req.body);
@@ -30,32 +48,351 @@ router.post('/webhook', async (req, res) => {
 
   console.log('[WhatsApp] Incoming message:', JSON.stringify(message, null, 2));
 
-  // Handle interactive button replies (Accept / Reject PO)
-  if (message.type === 'interactive' && message.action && message.poId) {
-    // Find the seller by their WhatsApp number
-    const seller = sellers.find(s => s.whatsapp_number === `+${message.from}` || s.phone === `+${message.from}`);
+  const phone = message.from; // without '+'
 
-    if (!seller) {
-      console.warn('[WhatsApp] No seller found for number:', message.from);
+  // ── Find seller by phone ──────────────────────────────────────────────────
+  const seller = sellers.find(
+    s => s.whatsapp_number === `+${phone}` || s.phone === `+${phone}`
+  );
+
+  if (!seller) {
+    console.warn('[WhatsApp] No seller found for number:', phone);
+    return;
+  }
+
+  // ── Route by message type ─────────────────────────────────────────────────
+  try {
+    if (message.type === 'interactive') {
+      await handleInteractiveReply(message, seller, phone);
+    } else if (message.type === 'text') {
+      await handleTextReply(message, seller, phone);
+    } else if (message.type === 'document' || message.type === 'image') {
+      await handleMediaUpload(message, seller, phone);
+    }
+  } catch (err) {
+    console.error('[WhatsApp] Unhandled error in webhook handler:', err.message);
+    await whatsapp.sendTextMessage(`+${phone}`, '⚠️ Something went wrong. Please try again or use the seller portal.')
+      .catch(() => {});
+  }
+});
+
+// ─── PHASE 2: Interactive button reply (Accept / Reject PO) ──────────────────
+async function handleInteractiveReply(message, seller, phone) {
+  const { action, poId } = message;
+  if (!action || !poId) return;
+
+  const session = sessionSvc.getSession(phone);
+
+  // Use session poId if button poId is a mismatch fallback
+  const resolvedPoId     = poId     || session?.poId;
+  const resolvedPoNumber = session?.poNumber || resolvedPoId;
+
+  if (action === 'accept') {
+    await processPOAccept({ phone, seller, poId: resolvedPoId, poNumber: resolvedPoNumber, session });
+  } else if (action === 'reject') {
+    await processPOReject({ phone, seller, poId: resolvedPoId, poNumber: resolvedPoNumber, session });
+  }
+}
+
+// ─── PHASE 2: Text reply (ACCEPT / REJECT / invoice selection / reason) ───────
+async function handleTextReply(message, seller, phone) {
+  const text    = (message.text || '').trim();
+  const session = sessionSvc.getSession(phone);
+
+  // ── No active session ────────────────────────────────────────────────────
+  if (!session || session.state === 'expired') {
+    await whatsapp.sendTextMessage(`+${phone}`,
+      'No pending PO found. Please contact JODL support or use the seller portal.'
+    ).catch(() => {});
+    return;
+  }
+
+  // ── Awaiting PO accept/reject ────────────────────────────────────────────
+  if (session.state === 'awaiting_po_response') {
+    const upper = text.toUpperCase();
+    const isAccept = ['ACCEPT', 'YES', 'OK', 'CONFIRM', '1'].some(k => upper.includes(k));
+    const isReject = ['REJECT', 'NO', 'DECLINE', '2'].some(k => upper.includes(k));
+
+    if (isAccept) {
+      await processPOAccept({ phone, seller, poId: session.poId, poNumber: session.poNumber, session });
+    } else if (isReject) {
+      await processPOReject({ phone, seller, poId: session.poId, poNumber: session.poNumber, session });
+    } else {
+      // Re-prompt
+      await whatsapp.sendTextMessage(`+${phone}`,
+        `Please reply *ACCEPT* or *REJECT* for PO *${session.poNumber}*.`
+      ).catch(() => {});
+    }
+    return;
+  }
+
+  // ── Awaiting rejection reason ────────────────────────────────────────────
+  if (session.state === 'awaiting_rejection_reason') {
+    const reason = text;
+    // Add comment to Zoho PO
+    await zoho.addCommentToPO(session.poId, `Rejection reason from vendor: ${reason}`).catch(() => {});
+
+    // Notify admin
+    const adminPhone = process.env.ADMIN_WHATSAPP_NUMBER;
+    if (adminPhone && whatsapp.isConfigured) {
+      await whatsapp.sendTextMessage(adminPhone,
+        `❌ *PO Rejected by Vendor*\n\nPO: *${session.poNumber}*\nVendor: *${seller.company}*\nReason: ${reason}`
+      ).catch(() => {});
+    }
+
+    await whatsapp.sendTextMessage(`+${phone}`,
+      `Thank you. Your rejection reason has been recorded. Our team will review and get back to you.`
+    ).catch(() => {});
+
+    sessionSvc.updateSession(phone, { state: 'completed' });
+    return;
+  }
+
+  // ── Awaiting PO selection (multiple open POs) ────────────────────────────
+  if (session.state === 'awaiting_po_selection') {
+    const openPOs = session._openPOs || [];
+    let selected  = null;
+
+    // Try numeric selection first: "1", "2", "3"
+    const numChoice = parseInt(text, 10);
+    if (!isNaN(numChoice) && numChoice >= 1 && numChoice <= openPOs.length) {
+      selected = openPOs[numChoice - 1];
+    } else {
+      // Try matching by PO number text
+      selected = openPOs.find(po =>
+        po.purchaseorder_number?.toLowerCase() === text.toLowerCase()
+      );
+    }
+
+    if (!selected) {
+      await whatsapp.sendTextMessage(`+${phone}`,
+        `Please reply with a number (1–${openPOs.length}) or the exact PO number.`
+      ).catch(() => {});
       return;
     }
 
+    sessionSvc.updateSession(phone, {
+      state:          'awaiting_invoice',
+      selectedPoId:   selected.purchaseorder_id,
+      poId:           selected.purchaseorder_id,
+      poNumber:       selected.purchaseorder_number,
+      _openPOs:       undefined,
+    });
+
+    await whatsapp.sendTextMessage(`+${phone}`,
+      `✅ PO *${selected.purchaseorder_number}* selected.\n\nPlease send your invoice as a *PDF* or *image* in this chat.`
+    ).catch(() => {});
+    return;
+  }
+
+  // ── Awaiting invoice — text received instead of document ─────────────────
+  if (session.state === 'awaiting_invoice') {
+    await whatsapp.sendTextMessage(`+${phone}`,
+      `Please send your invoice as a *PDF file* or *image*. Text messages cannot be processed as invoices.`
+    ).catch(() => {});
+    return;
+  }
+
+  // ── Fallthrough ──────────────────────────────────────────────────────────
+  await whatsapp.sendTextMessage(`+${phone}`,
+    `I'm not sure how to handle that. Please use the seller portal or contact JODL support.`
+  ).catch(() => {});
+}
+
+// ─── PHASE 3: Document or Image (invoice upload) ──────────────────────────────
+async function handleMediaUpload(message, seller, phone) {
+  const session = sessionSvc.getSession(phone);
+
+  if (!session || !['awaiting_invoice', 'invoice_uploaded'].includes(session.state)) {
+    await whatsapp.sendTextMessage(`+${phone}`,
+      'No active PO session found. Please accept a PO first before sending an invoice.'
+    ).catch(() => {});
+    return;
+  }
+
+  // ── Acknowledge immediately ───────────────────────────────────────────────
+  await whatsapp.sendTextMessage(`+${phone}`, '⏳ Received your invoice. Processing...').catch(() => {});
+
+  // ── Check file size (Meta includes file_size in webhook, but we check after download) ─
+  const mediaId    = message.mediaId;
+  const mimeType   = message.mimeType || 'application/octet-stream';
+  const filename   = message.filename || `invoice_${Date.now()}.pdf`;
+
+  // ── Download from Meta ─────────────────────────────────────────────────────
+  let mediaBuffer;
+  try {
+    const media = await whatsapp.downloadMedia(mediaId);
+    mediaBuffer = media.buffer;
+
+    if (media.fileSize > MAX_MEDIA_BYTES) {
+      await whatsapp.sendTextMessage(`+${phone}`,
+        '⚠️ File too large. Please compress the file or upload via the seller portal.'
+      ).catch(() => {});
+      return;
+    }
+  } catch (err) {
+    console.error('[WhatsApp] Media download failed:', err.message);
+    await whatsapp.sendTextMessage(`+${phone}`,
+      '⚠️ Could not download your file. Please try again or upload via the seller portal.'
+    ).catch(() => {});
+    return;
+  }
+
+  // ── Determine target PO ────────────────────────────────────────────────────
+  let poId     = session.selectedPoId || session.poId;
+  let poNumber = session.poNumber;
+
+  // If vendor has multiple accepted POs, prompt for selection first
+  if (!poId) {
     try {
-      if (message.action === 'accept') {
-        await zoho.acceptPurchaseOrder(message.poId);
-        await whatsapp.sendTextMessage(`+${message.from}`, `✅ PO *${message.poId}* has been accepted. You can now submit your invoice via the seller portal.`);
-        console.log(`[WhatsApp] PO ${message.poId} accepted by ${message.from}`);
-      } else if (message.action === 'reject') {
-        await zoho.rejectPurchaseOrder(message.poId, 'Rejected via WhatsApp');
-        await whatsapp.sendTextMessage(`+${message.from}`, `❌ PO *${message.poId}* has been rejected.`);
-        console.log(`[WhatsApp] PO ${message.poId} rejected by ${message.from}`);
+      const openData = await zoho.getPurchaseOrders({
+        status:    'open',
+        vendor_id: seller.vendor_id,
+      });
+      const openPOs = openData.purchaseorders || [];
+
+      if (openPOs.length === 0) {
+        await whatsapp.sendTextMessage(`+${phone}`,
+          'No open purchase orders found for your account. Please contact JODL support.'
+        ).catch(() => {});
+        return;
       }
+
+      if (openPOs.length > 1) {
+        sessionSvc.updateSession(phone, { state: 'awaiting_po_selection', _openPOs: openPOs });
+        await whatsapp.sendPOSelectionPrompt({ to: `+${phone}`, pos: openPOs });
+        return;
+      }
+
+      poId     = openPOs[0].purchaseorder_id;
+      poNumber = openPOs[0].purchaseorder_number;
+      sessionSvc.updateSession(phone, { poId, poNumber, selectedPoId: poId });
     } catch (err) {
-      console.error('[WhatsApp] Failed to process PO action:', err.message);
-      await whatsapp.sendTextMessage(`+${message.from}`, `⚠️ Could not process your request for PO *${message.poId}*. Please use the seller portal.`).catch(() => {});
+      console.error('[WhatsApp] Failed to fetch open POs:', err.message);
     }
   }
-});
+
+  // ── Save file to uploads dir ────────────────────────────────────────────────
+  const ext        = path.extname(filename) || (mimeType.includes('pdf') ? '.pdf' : '.jpg');
+  const savedName  = `wa_${seller.id}_${(poNumber || 'unknown').replace(/[^a-zA-Z0-9-]/g, '')}_${Date.now()}${ext}`;
+  const uploadDir  = process.env.UPLOAD_DIR || './uploads';
+  const filePath   = path.join(uploadDir, savedName);
+
+  try {
+    fs.writeFileSync(filePath, mediaBuffer);
+  } catch (err) {
+    console.error('[WhatsApp] Failed to save media file:', err.message);
+    await whatsapp.sendTextMessage(`+${phone}`,
+      '⚠️ Could not save your file. Please try again or upload via the seller portal.'
+    ).catch(() => {});
+    return;
+  }
+
+  // ── Run PDF extraction if PDF ──────────────────────────────────────────────
+  let extractedData = null;
+  let matchResults  = null;
+
+  const isPdf = mimeType.includes('pdf') || ext.toLowerCase() === '.pdf';
+  if (isPdf) {
+    try {
+      extractedData = await pdfExtractor.extractFromBuffer(mediaBuffer, savedName);
+
+      // Match against PO if we have a poId
+      if (poId && !extractedData.is_scanned) {
+        try {
+          const poData = await zoho.getPurchaseOrderById(poId);
+          matchResults = invoiceMatcher.matchLineItems(
+            extractedData.line_items || [],
+            poData.purchaseorder?.line_items || []
+          );
+        } catch (err) {
+          console.warn('[WhatsApp] PO matching failed:', err.message);
+        }
+      }
+    } catch (err) {
+      console.warn('[WhatsApp] PDF extraction failed:', err.message);
+      // Still save the record — flag for manual review
+    }
+  }
+
+  // ── Create WA invoice record ────────────────────────────────────────────────
+  const waInvoice = createWaInvoice({
+    sellerId:         seller.id,
+    sellerPhone:      phone,
+    poId,
+    poNumber,
+    filePath:         savedName,
+    originalFilename: filename,
+    mimeType,
+    extractedData,
+    matchResults,
+    status: 'pending_admin_review',
+  });
+
+  // Update session
+  sessionSvc.updateSession(phone, { state: 'invoice_uploaded', invoiceId: waInvoice.id });
+
+  // ── Build confirmation message ──────────────────────────────────────────────
+  const invoiceNumber = extractedData?.header?.invoice_number || '(to be verified)';
+  const amount        = extractedData?.header?.total_amount   || 0;
+  const formattedAmt  = amount
+    ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(amount)
+    : '(to be verified)';
+
+  await whatsapp.sendTextMessage(`+${phone}`,
+    `✅ *Invoice Received & Processed!*\n\nInvoice No: *${invoiceNumber}*\nAgainst PO: *${poNumber || 'N/A'}*\nAmount: *${formattedAmt}*\n\nStatus: Pending admin review ⏳\n\nOur team will verify and post to our accounting system.\nYou'll receive a confirmation once posted.\n\nTrack status: ${process.env.FRONTEND_URL || 'http://localhost:5173'}/invoices`
+  ).catch(() => {});
+
+  console.log(`[WhatsApp] Invoice received from ${phone}, WA invoice ID: ${waInvoice.id}`);
+}
+
+// ─── Helper: Process PO Accept ────────────────────────────────────────────────
+async function processPOAccept({ phone, seller, poId, poNumber, session }) {
+  // Retry logic for Zoho API
+  let accepted = false;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await zoho.acceptPurchaseOrder(poId);
+      accepted = true;
+      break;
+    } catch (err) {
+      console.warn(`[WhatsApp] Accept PO attempt ${attempt}/3 failed:`, err.message);
+      if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 1000));
+    }
+  }
+
+  if (!accepted) {
+    await whatsapp.sendTextMessage(`+${phone}`,
+      `⚠️ Could not accept PO *${poNumber}* at this time. Please try again or use the seller portal.`
+    ).catch(() => {});
+    return;
+  }
+
+  sessionSvc.updateSession(phone, { state: 'awaiting_invoice' });
+  await whatsapp.sendInvoiceUploadPrompt({ to: `+${phone}`, poNumber }).catch(() => {});
+  console.log(`[WhatsApp] PO ${poNumber} accepted by ${phone}`);
+}
+
+// ─── Helper: Process PO Reject ────────────────────────────────────────────────
+async function processPOReject({ phone, seller, poId, poNumber, session }) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await zoho.rejectPurchaseOrder(poId, 'Rejected via WhatsApp');
+      break;
+    } catch (err) {
+      console.warn(`[WhatsApp] Reject PO attempt ${attempt}/3 failed:`, err.message);
+      if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 1000));
+    }
+  }
+
+  sessionSvc.updateSession(phone, { state: 'awaiting_rejection_reason' });
+
+  await whatsapp.sendTextMessage(`+${phone}`,
+    `❌ *PO #${poNumber} Rejected*\n\nPlease reply with the reason for rejection so we can resolve this quickly.`
+  ).catch(() => {});
+
+  console.log(`[WhatsApp] PO ${poNumber} rejected by ${phone}`);
+}
 
 // ─── POST /api/whatsapp/send-test (auth required) ────────────────────────────
 router.post('/send-test', authenticate, async (req, res) => {
@@ -97,6 +434,82 @@ router.post('/update-settings', authenticate, (req, res) => {
 
   const { password: _pw, ...safeSellerData } = seller;
   res.json({ success: true, seller: safeSellerData });
+});
+
+// ─── POST /api/whatsapp/notify-po (auth required) ────────────────────────────
+// Manual trigger: send PO notification for a given PO ID
+router.post('/notify-po', authenticate, async (req, res) => {
+  const { poId } = req.body;
+  if (!poId) return res.status(400).json({ error: true, message: 'poId required' });
+
+  const poData = await zoho.getPurchaseOrderById(poId);
+  const po     = poData.purchaseorder;
+
+  const result = await whatsapp.triggerPONotification(po);
+  res.json({ success: true, result });
+});
+
+// ─── GET /api/whatsapp/debug (auth required) ──────────────────────────────────
+// Returns Meta phone number info + sends a test text message to reveal actual API response
+router.get('/debug', authenticate, async (req, res) => {
+  const axios = require('axios');
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const accessToken   = process.env.WHATSAPP_ACCESS_TOKEN;
+  const apiVersion    = process.env.WHATSAPP_API_VERSION || 'v19.0';
+  const to            = '917738305384';
+
+  const results = { phoneNumberId, tokenPrefix: accessToken?.slice(0, 20) + '...', to };
+
+  // 1. Fetch phone number details from Meta
+  try {
+    const info = await axios.get(
+      `https://graph.facebook.com/${apiVersion}/${phoneNumberId}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    results.phoneInfo = info.data;
+  } catch (e) {
+    results.phoneInfoError = e.response?.data || e.message;
+  }
+
+  // 2. Send hello_world template (guaranteed delivery, no 24h window restriction)
+  try {
+    const msg = await axios.post(
+      `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to,
+        type: 'template',
+        template: {
+          name: 'hello_world',
+          language: { code: 'en_US' },
+        },
+      },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+    );
+    results.templateResponse = msg.data;
+  } catch (e) {
+    results.templateError = e.response?.data || e.message;
+  }
+
+  // 3. Also send a plain text message
+  try {
+    const msg = await axios.post(
+      `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to,
+        type: 'text',
+        text: { body: 'JODL debug test — plain text message ✅' },
+      },
+      { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
+    );
+    results.textResponse = msg.data;
+  } catch (e) {
+    results.textError = e.response?.data || e.message;
+  }
+
+  res.json(results);
 });
 
 module.exports = router;
