@@ -4,7 +4,6 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import Layout from './components/Layout';
 import Login from './pages/Login';
-import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import PurchaseOrders from './pages/PurchaseOrders';
 import PODetail from './pages/PODetail';
@@ -59,7 +58,6 @@ export default function App() {
           <Routes>
             {/* ── Public routes ─────────────────────────────────────────── */}
             <Route path="/login"                element={<PublicRoute><Login /></PublicRoute>} />
-            <Route path="/register"             element={<PublicRoute><Register /></PublicRoute>} />
             <Route path="/forgot-password"      element={<PublicRoute><ForgotPassword /></PublicRoute>} />
             <Route path="/reset-password/:token" element={<PublicRoute><ResetPassword /></PublicRoute>} />
 

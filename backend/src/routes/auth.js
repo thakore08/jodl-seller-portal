@@ -54,69 +54,6 @@ router.post('/login', async (req, res) => {
   res.json({ token, seller: sellerData });
 });
 
-// ─── POST /api/auth/register ──────────────────────────────────────────────────
-router.post('/register', async (req, res) => {
-  const { name, company, email, password, phone, vendor_id } = req.body || {};
-
-  if (!name || !company || !email || !password) {
-    return res.status(400).json({
-      error: true,
-      message: 'name, company, email, and password are required',
-    });
-  }
-
-  if (String(password).length < 8) {
-    return res.status(400).json({ error: true, message: 'Password must be at least 8 characters' });
-  }
-
-  const normalizedEmail = String(email).trim().toLowerCase();
-  const exists = sellers.some(s => s.email.toLowerCase() === normalizedEmail);
-  if (exists) {
-    return res.status(409).json({ error: true, message: 'Seller with this email already exists' });
-  }
-
-  const nextId = String(
-    sellers.reduce((max, s) => {
-      const n = Number(s.id);
-      return Number.isNaN(n) ? max : Math.max(max, n);
-    }, 0) + 1
-  );
-
-  const newSeller = {
-    id: nextId,
-    email: normalizedEmail,
-    password: await bcrypt.hash(String(password), 10),
-    name: String(name).trim(),
-    company: String(company).trim(),
-    vendor_id: vendor_id ? String(vendor_id).trim() : '',
-    role: 'seller_admin',
-    phone: phone ? String(phone).trim() : '',
-    whatsapp_enabled: false,
-    whatsapp_number: '',
-    notifications: {
-      new_po: true,
-      po_updated: true,
-      invoice_posted: true,
-    },
-  };
-
-  sellers.push(newSeller);
-
-  const { password: _pw, ...sellerData } = newSeller;
-  const token = jwt.sign(
-    { id: newSeller.id, email: newSeller.email, role: newSeller.role },
-    JWT_SECRET,
-    { expiresIn: JWT_EXPIRES }
-  );
-
-  res.status(201).json({
-    success: true,
-    message: 'Seller registered successfully',
-    token,
-    seller: sellerData,
-  });
-});
-
 // ─── GET /api/auth/me ─────────────────────────────────────────────────────────
 router.get('/me', authenticate, (req, res) => {
   res.json({ seller: req.seller });

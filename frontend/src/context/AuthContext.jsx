@@ -26,17 +26,6 @@ export function AuthProvider({ children }) {
   const login = async (email, password) => {
     const { data } = await api.post('/auth/login', { email, password });
     localStorage.setItem('jodl_token', data.token);
-    localStorage.setItem('jodl_sidebar_collapsed', '1');
-    localStorage.setItem('jodl_show_onboarding_sequence', '1');
-    setSeller(data.seller);
-    return data.seller;
-  };
-
-  const register = async payload => {
-    const { data } = await api.post('/auth/register', payload);
-    localStorage.setItem('jodl_token', data.token);
-    localStorage.setItem('jodl_sidebar_collapsed', '1');
-    localStorage.setItem('jodl_show_onboarding_sequence', '1');
     setSeller(data.seller);
     return data.seller;
   };
@@ -54,7 +43,7 @@ export function AuthProvider({ children }) {
   const hasRole = (...roles) => roles.includes(seller?.role);
 
   return (
-    <AuthContext.Provider value={{ seller, loading, login, register, logout, refresh: loadUser, hasRole }}>
+    <AuthContext.Provider value={{ seller, loading, login, logout, refresh: loadUser, hasRole }}>
       {children}
     </AuthContext.Provider>
   );

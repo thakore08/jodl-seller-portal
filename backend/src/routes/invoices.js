@@ -57,25 +57,22 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
   }
 
   // Fetch PO to get its line items for matching
-  let po = null;
+  let po;
   try {
     const poData = await zoho.getPurchaseOrderById(purchaseorder_id);
     po = poData.purchaseorder;
-  } catch (err) {
-    console.warn('[InvoiceExtract] PO fetch failed, continuing without match:', err.message);
+  } catch {
+    return res.status(404).json({ error: true, message: 'Purchase order not found in Zoho Books' });
   }
 
   // Extract text and parse fields from the PDF buffer
   const extraction = await pdfExtractor.extractFromBuffer(req.file.buffer, req.file.originalname);
 
-  // Scanned PDF where OCR failed or is disabled — tell the frontend to use manual entry
-  if (extraction.is_scanned && !extraction.ocr_success) {
+  // Scanned PDF — tell the frontend to fall back to manual entry
+  if (extraction.is_scanned) {
     return res.json({
       success:         true,
       is_scanned:      true,
-      ocr_used:        extraction.ocr_used || false,
-      ocr_success:     extraction.ocr_success || false,
-      ocr_error:       extraction.extraction_log?.ocr_error,
       message:         'Scanned PDF detected — please use manual entry.',
       header:          null,
       line_items:      [],
@@ -85,8 +82,10 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
   }
 
   // Match extracted line items against PO line items
-  // Matching disabled temporarily for testing
-  const matchResults = [];
+  const matchResults = invoiceMatcher.matchLineItems(
+    extraction.line_items,
+    po.line_items || []
+  );
 
   // Log raw text on the server so it appears in Render logs regardless of client environment
   console.log('[Invoice OCR] raw_text for', req.file.originalname, ':\n', extraction.raw_text);
@@ -94,10 +93,7 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
 
   res.json({
     success:        true,
-    is_scanned:     extraction.is_scanned || false,
-    ocr_used:       extraction.ocr_used || false,
-    ocr_success:    extraction.ocr_success || false,
-    ocr_error:      extraction.extraction_log?.ocr_error,
+    is_scanned:     false,
     header:         extraction.header,
     line_items:     extraction.line_items,
     match_results:  matchResults,
@@ -307,7 +303,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     date:                     safeDate(date) || today,  // bill / invoice date
     transaction_posting_date: today,                    // Transaction Posting Date (native field)
     ...(safeDate(due_date) && { due_date: safeDate(due_date) }),
-    bill_number:       bill_number || '',
+    bill_number:       bill_number || `INV-${Date.now()}`,
     purchaseorder_ids: [purchaseorder_id],
     line_items:        parsedLineItems || po.line_items?.map(item => ({
       item_id:     item.item_id,

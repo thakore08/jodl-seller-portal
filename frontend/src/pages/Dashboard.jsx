@@ -1,19 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, CheckCircle, XCircle, FileText, ArrowRight, RefreshCw, Sparkles } from 'lucide-react';
+import { ShoppingCart, CheckCircle, XCircle, FileText, ArrowRight, RefreshCw } from 'lucide-react';
 import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import { format } from 'date-fns';
 
 function StatCard({ label, value, icon: Icon, color }) {
   return (
-    <div className="card glow-hover p-5 flex items-center gap-4">
-      <div className={`flex h-12 w-12 items-center justify-center rounded-xl shadow-md ${color}`}>
+    <div className="card p-5 flex items-center gap-4">
+      <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${color}`}>
         <Icon className="h-6 w-6 text-white" />
       </div>
       <div>
         <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value ?? '—'}</p>
-        <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{label}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
       </div>
     </div>
   );
@@ -46,30 +46,14 @@ export default function Dashboard() {
   const total = stats ? (stats.open + stats.billed + stats.cancelled) : 0;
 
   return (
-    <div className="space-y-6">
-      <div className="page-hero">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="hero-title">Operations Overview</h2>
-            <p className="hero-subtitle">Live visibility into purchase orders, invoices, and billing progress.</p>
-            <div className="mt-3 flex items-center gap-2">
-              <span className="chip-soft">Seller Workspace</span>
-              <span className="chip-soft">Real-time sync</span>
-            </div>
-          </div>
-          <span className="status-live text-white/90">
-            <Sparkles className="h-3.5 w-3.5" />
-            Live
-          </span>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">KPI Snapshot</h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Overview of your purchase order lifecycle</p>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">Dashboard</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Overview of your purchase orders</p>
         </div>
-        <button onClick={loadData} disabled={loading} className="btn-outline gap-2 shimmer-on-hover">
+        <button onClick={loadData} disabled={loading} className="btn-outline gap-2">
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
@@ -82,17 +66,17 @@ export default function Dashboard() {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 motion-stagger">
-        <StatCard label="Total POs"      value={total}            icon={ShoppingCart} color="bg-gradient-to-br from-brand-500 to-brand-700" />
-        <StatCard label="Open / Pending" value={stats?.open}      icon={FileText}     color="bg-gradient-to-br from-amber-400 to-orange-500" />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard label="Total POs"      value={total}            icon={ShoppingCart} color="bg-brand-600" />
+        <StatCard label="Open / Pending" value={stats?.open}      icon={FileText}     color="bg-amber-500" />
         <StatCard label="Billed"         value={stats?.billed}    icon={CheckCircle}  color="bg-green-600" />
-        <StatCard label="Cancelled"      value={stats?.cancelled} icon={XCircle}      color="bg-gradient-to-br from-red-500 to-signal-500" />
+        <StatCard label="Cancelled"      value={stats?.cancelled} icon={XCircle}      color="bg-red-500"   />
       </div>
 
       {/* Recent POs */}
       <div className="card">
         <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-700 px-5 py-4">
-          <h2 className="text-sm font-bold text-gray-900 dark:text-gray-100">Recent Purchase Orders</h2>
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Recent Purchase Orders</h2>
           <Link to="/purchase-orders" className="flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300">
             View all <ArrowRight className="h-3.5 w-3.5" />
           </Link>
