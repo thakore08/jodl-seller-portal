@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, CreditCard, Calendar, Building2, Sparkles } from 'lucide-react';
+import { ArrowLeft, CreditCard, FileText, Calendar, Building2 } from 'lucide-react';
 import { format } from 'date-fns';
 import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
@@ -52,23 +52,7 @@ export default function PaymentDetail() {
   const { bill, payments, summary } = data;
 
   return (
-    <div className="space-y-5 max-w-4xl mx-auto">
-      <div className="page-hero">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="hero-title">Payment Detail Lens</h2>
-            <p className="hero-subtitle">Deep view into payment history, TDS deductions, and balance movement.</p>
-            <div className="mt-3">
-              <span className="chip-soft">Bill: {bill.bill_number}</span>
-            </div>
-          </div>
-          <span className="status-live text-white/90">
-            <Sparkles className="h-3.5 w-3.5" />
-            Reconciled
-          </span>
-        </div>
-      </div>
-
+    <div className="p-4 sm:p-6 space-y-5 max-w-3xl mx-auto">
       {/* Back */}
       <Link to="/payments" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
         <ArrowLeft className="h-4 w-4" /> Back to Payments
@@ -91,7 +75,7 @@ export default function PaymentDetail() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 border-t border-gray-100 dark:border-gray-700 pt-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 border-t border-gray-100 dark:border-gray-700 pt-4">
           <InfoRow
             label="Bill Date"
             value={bill.date ? format(new Date(bill.date), 'dd MMM yyyy') : '—'}
@@ -117,7 +101,7 @@ export default function PaymentDetail() {
           <CreditCard className="h-4 w-4 text-gray-500 dark:text-gray-400" />
           Payment Summary
         </h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div className="text-center p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50">
             <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">Bill Total</p>
             <p className="text-base font-bold text-gray-900 dark:text-gray-100">

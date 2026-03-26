@@ -65,5 +65,5 @@ export default function StatusBadge({ status }) {
   const key = (status || '').toLowerCase();
   const cls = STATUS_STYLES[key] || 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
   const lbl = STATUS_LABELS[key] || status || '—';
-  return <span className={`badge ring-1 ring-black/5 dark:ring-white/10 ${cls}`}>{lbl}</span>;
+  return <span className={`badge ${cls}`}>{lbl}</span>;
 }
