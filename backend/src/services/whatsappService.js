@@ -160,18 +160,17 @@ class WhatsAppService {
       interactive: {
         type: 'button',
         body: {
-          text: `PO #${poNumber} Accepted! \u2705\n\nWhat would you like to do next?\n\n1. Material Readiness - Update when items will be ready\n2. Ready to Dispatch - Mark items ready for dispatch\n3. Upload Invoice - Send your invoice PDF\n\nView PO: ${poUrl}`,
+          text: `PO ${poNumber} accepted. What would you like to do next?`,
         },
         action: {
           buttons: [
-            { type: 'reply', reply: { id: `readiness_${poId}`, title: 'Readiness' } },
-            { type: 'reply', reply: { id: `dispatch_${poId}`,  title: 'Dispatch' } },
-            { type: 'reply', reply: { id: `invoice_${poId}`,   title: 'Upload Invoice' } },
+            { type: 'reply', reply: { id: `invoice_${poId}`,  title: 'Upload Invoice' } },
+            { type: 'reply', reply: { id: `portal_${poId}`,   title: 'View PO' } },
           ],
         },
       },
     };
-    console.log('[WhatsApp] sendPostAcceptanceMenu payload:', JSON.stringify(payload, null, 2));
+    console.log('[WhatsApp] sendPostAcceptanceMenu payload:', JSON.stringify(payload));
     const result = await this.sendMessage(payload);
     console.log('[WhatsApp] sendPostAcceptanceMenu Meta response:', JSON.stringify(result));
     return result;
