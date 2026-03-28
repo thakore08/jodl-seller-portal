@@ -71,7 +71,8 @@ router.get('/', async (req, res) => {
     } else {
       const now = Date.now();
       const newPOs = filtered.filter(po => {
-        if (po.status !== 'issued' && po.status !== 'open') return false;
+        // Only notify 'issued' POs — 'open' means already accepted, no action needed
+        if (po.status !== 'issued') return false;
         if (notifiedPoIds.has(po.purchaseorder_id)) return false;
         // Time guard: skip POs older than NOTIFY_WINDOW_MS (prevents re-spam after deploy)
         const poDate = po.date ? new Date(po.date).getTime() : now;

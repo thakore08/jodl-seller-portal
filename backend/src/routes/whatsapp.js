@@ -412,7 +412,16 @@ async function processPOAccept({ phone, seller, poId, poNumber, session }) {
       break;
     } catch (err) {
       zohoErr = err;
-      console.error(`[Accept] Zoho accept attempt ${attempt}/3 failed:`, err.message, err.response?.data || '');
+      const errMsg = err.message || '';
+      const zohoCode = err.response?.data?.code;
+      // Zoho returns an error if the PO is already in 'open' status — treat as success
+      const alreadyOpen = zohoCode === 36026 || errMsg.toLowerCase().includes('already') || errMsg.toLowerCase().includes('cannot be changed');
+      if (alreadyOpen) {
+        console.log(`[Accept] PO ${poNumber} already open in Zoho — treating as accepted`);
+        accepted = true;
+        break;
+      }
+      console.error(`[Accept] Zoho accept attempt ${attempt}/3 failed:`, errMsg, err.response?.data || '');
       if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 1000));
     }
   }
