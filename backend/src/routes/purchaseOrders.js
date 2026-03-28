@@ -153,13 +153,17 @@ router.post('/:id/accept', requireRole('seller_admin', 'operations_user'), async
     appendActivity(id, 'po_accepted', sellerName, {});
   }
 
-  // Send WhatsApp confirmation (non-blocking)
+  // Send WhatsApp post-acceptance action menu (non-blocking)
   if (whatsapp.isConfigured && req.seller.whatsapp_enabled && req.seller.whatsapp_number) {
-    whatsapp.sendPOStatusUpdate({
-      to:       req.seller.whatsapp_number,
-      poNumber: po.purchaseorder_number || id,
-      status:   'accepted',
-    }).catch(err => console.warn('[WhatsApp] Accept notification failed:', err.message));
+    const frontendUrl = process.env.FRONTEND_URL || 'https://jodl-seller-portal.onrender.com';
+    whatsapp._shortenUrl(`${frontendUrl}/purchase-orders/${id}`)
+      .then(poUrl => whatsapp.sendPostAcceptanceMenu({
+        to:       req.seller.whatsapp_number,
+        poNumber: po.purchaseorder_number || id,
+        poId:     id,
+        poUrl,
+      }))
+      .catch(err => console.warn('[WhatsApp] Accept menu failed:', err.message));
   }
 
   res.json({ success: true, message: 'Purchase order accepted', purchaseorder: mergeLocalStatus(po) });
