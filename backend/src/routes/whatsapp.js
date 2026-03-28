@@ -449,6 +449,39 @@ router.post('/notify-po', authenticate, async (req, res) => {
   res.json({ success: true, result });
 });
 
+// ─── GET /api/whatsapp/token-info (auth required) ────────────────────────────
+// Inspects the WhatsApp access token — shows app, scopes, expiry, linked WABAs
+router.get('/token-info', authenticate, async (req, res) => {
+  const axios       = require('axios');
+  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+  const apiVersion  = process.env.WHATSAPP_API_VERSION || 'v19.0';
+  const results     = { tokenPrefix: accessToken?.slice(0, 20) + '...' };
+
+  // 1. /me — who does this token belong to?
+  try {
+    const me = await axios.get(`https://graph.facebook.com/${apiVersion}/me`,
+      { headers: { Authorization: `Bearer ${accessToken}` } });
+    results.me = me.data;
+  } catch (e) { results.meError = e.response?.data || e.message; }
+
+  // 2. debug_token — scopes, expiry, app
+  try {
+    const dbg = await axios.get(
+      `https://graph.facebook.com/debug_token?input_token=${accessToken}&access_token=${accessToken}`);
+    results.debug = dbg.data?.data;
+  } catch (e) { results.debugError = e.response?.data || e.message; }
+
+  // 3. List WABAs this token can see
+  try {
+    const biz = await axios.get(
+      `https://graph.facebook.com/${apiVersion}/me/businesses`,
+      { headers: { Authorization: `Bearer ${accessToken}` } });
+    results.businesses = biz.data?.data;
+  } catch (e) { results.businessesError = e.response?.data || e.message; }
+
+  res.json(results);
+});
+
 // ─── GET /api/whatsapp/phone-numbers (auth required) ─────────────────────────
 // Fetches all phone numbers linked to the WABA from Meta
 router.get('/phone-numbers', authenticate, async (req, res) => {
