@@ -94,15 +94,20 @@ router.get('/', async (req, res) => {
     data.purchaseorders = filtered.slice(0, Number(per_page));
 
     // Auto-trigger WhatsApp notification for newly-seen issued/open POs
-    if (whatsapp.isConfigured) {
-      filtered
-        .filter(po => (po.status === 'issued' || po.status === 'open') && !notifiedPoIds.has(po.purchaseorder_id))
-        .forEach(po => {
-          notifiedPoIds.add(po.purchaseorder_id); // add immediately to prevent race-condition duplicates
-          whatsapp.triggerPONotification(po).catch(err =>
-            console.error(`[AutoNotify] WA notification failed for ${po.purchaseorder_number}:`, err.message)
-          );
-        });
+    if (!whatsapp.isConfigured) {
+      console.warn('[AutoNotify] WhatsApp not configured — skipping PO notifications');
+    } else {
+      const newPOs = filtered.filter(
+        po => (po.status === 'issued' || po.status === 'open') && !notifiedPoIds.has(po.purchaseorder_id)
+      );
+      console.log(`[AutoNotify] Checking ${filtered.length} POs — ${newPOs.length} new to notify`);
+      newPOs.forEach(po => {
+        notifiedPoIds.add(po.purchaseorder_id); // add immediately to prevent race-condition duplicates
+        console.log(`[AutoNotify] Triggering WA notification for ${po.purchaseorder_number} (vendor_id=${po.vendor_id}, status=${po.status})`);
+        whatsapp.triggerPONotification(po)
+          .then(result => console.log(`[AutoNotify] Result for ${po.purchaseorder_number}:`, JSON.stringify(result)))
+          .catch(err => console.error(`[AutoNotify] FAILED for ${po.purchaseorder_number}:`, err.message));
+      });
     }
   }
 
