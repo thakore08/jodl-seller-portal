@@ -16,7 +16,8 @@ const sessionSvc  = require('../services/whatsappSessionService');
 const pdfExtractor   = require('../services/pdfExtractorService');
 const invoiceMatcher = require('../services/invoiceMatchingService');
 const { sellers }    = require('../data/sellers');
-const { createWaInvoice } = require('../data/waInvoices');
+const { createWaInvoice, updateWaInvoice } = require('../data/waInvoices');
+const { poLocalStatus } = require('../data/poLocalState');
 const { authenticate } = require('../middleware/authMiddleware');
 
 const router = express.Router();
@@ -76,21 +77,35 @@ router.post('/webhook', async (req, res) => {
   }
 });
 
-// ─── PHASE 2: Interactive button reply (Accept / Reject PO) ──────────────────
+// ─── PHASE 2: Interactive button reply ───────────────────────────────────────
 async function handleInteractiveReply(message, seller, phone) {
   const { action, poId } = message;
   if (!action || !poId) return;
 
   const session = sessionSvc.getSession(phone);
-
-  // Use session poId if button poId is a mismatch fallback
   const resolvedPoId     = poId     || session?.poId;
   const resolvedPoNumber = session?.poNumber || resolvedPoId;
+  const resolvedPoUrl    = session?.poUrl    || '';
 
   if (action === 'accept') {
     await processPOAccept({ phone, seller, poId: resolvedPoId, poNumber: resolvedPoNumber, session });
+
   } else if (action === 'reject') {
     await processPOReject({ phone, seller, poId: resolvedPoId, poNumber: resolvedPoNumber, session });
+
+  } else if (action === 'readiness' || action === 'dispatch') {
+    // Seller tapped Material Readiness or Ready to Dispatch — send portal link
+    const label = action === 'readiness' ? 'Material Readiness' : 'Ready to Dispatch';
+    await whatsapp.sendTextMessage(`+${phone}`,
+      `To update *${label}* for PO *${resolvedPoNumber}*, please visit the JODL Seller Portal:\n\n🔗 ${resolvedPoUrl || 'https://jodl-seller-portal.onrender.com'}`
+    ).catch(() => {});
+
+  } else if (action === 'invoice') {
+    // Seller tapped Upload Invoice — set session to awaiting invoice
+    sessionSvc.updateSession(phone, { state: 'awaiting_invoice' });
+    await whatsapp.sendTextMessage(`+${phone}`,
+      `📎 Please send your invoice for PO *${resolvedPoNumber}* as a *PDF file* or *image* in this chat.`
+    ).catch(() => {});
   }
 }
 
@@ -332,16 +347,52 @@ async function handleMediaUpload(message, seller, phone) {
   // Update session
   sessionSvc.updateSession(phone, { state: 'invoice_uploaded', invoiceId: waInvoice.id });
 
-  // ── Build confirmation message ──────────────────────────────────────────────
-  const invoiceNumber = extractedData?.header?.invoice_number || '(to be verified)';
-  const amount        = extractedData?.header?.total_amount   || 0;
+  // ── Auto-post to Zoho Books ────────────────────────────────────────────────
+  const extracted    = extractedData?.header || {};
+  const today        = new Date().toISOString().split('T')[0];
+  const invoiceNumber = extracted.invoice_number || `WA-${Date.now()}`;
+  const amount        = extracted.total_amount || 0;
   const formattedAmt  = amount
     ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(amount)
     : '(to be verified)';
 
-  await whatsapp.sendTextMessage(`+${phone}`,
-    `✅ *Invoice Received & Processed!*\n\nInvoice No: *${invoiceNumber}*\nAgainst PO: *${poNumber || 'N/A'}*\nAmount: *${formattedAmt}*\n\nStatus: Pending admin review ⏳\n\nOur team will verify and post to our accounting system.\nYou'll receive a confirmation once posted.\n\nTrack status: ${process.env.FRONTEND_URL || 'http://localhost:5173'}/invoices`
-  ).catch(() => {});
+  let posted = false;
+  try {
+    const billPayload = {
+      vendor_id:         seller.vendor_id,
+      date:              extracted.invoice_date || today,
+      bill_number:       invoiceNumber,
+      purchaseorder_ids: poId ? [poId] : [],
+      line_items:        (extractedData?.line_items || []).map(item => ({
+        name:       item.description || item.name || 'Line item',
+        quantity:   item.quantity    || 1,
+        rate:       item.unit_price  || item.rate || 0,
+        account_id: item.account_id  || '',
+        item_id:    item.item_id     || '',
+      })),
+      notes: `Invoice received via WhatsApp. WA record ID: ${waInvoice.id}`,
+    };
+
+    const result = await zoho.createBill(billPayload);
+    const billId  = result.bill?.bill_id;
+    updateWaInvoice(waInvoice.id, { status: 'posted', zohoBillId: billId });
+    posted = true;
+    console.log(`[WhatsApp] Invoice auto-posted to Zoho Books. Bill ID: ${billId}, WA invoice: ${waInvoice.id}`);
+  } catch (err) {
+    console.error(`[WhatsApp] Auto-post to Zoho failed for ${waInvoice.id}:`, err.message);
+    // Invoice stays as pending_admin_review for manual posting
+  }
+
+  // ── Send confirmation to seller ────────────────────────────────────────────
+  if (posted) {
+    await whatsapp.sendTextMessage(`+${phone}`,
+      `✅ *Purchase Bill Posted to JODL!*\n\nYour invoice has been successfully received and posted to the JODL accounting system.\n\nInvoice No: *${invoiceNumber}*\nAgainst PO: *${poNumber || 'N/A'}*\nAmount: *${formattedAmt}*\n\nOur finance team will process payment per agreed terms. Thank you! 🙏`
+    ).catch(() => {});
+  } else {
+    await whatsapp.sendTextMessage(`+${phone}`,
+      `✅ *Invoice Received!*\n\nInvoice No: *${invoiceNumber}*\nAgainst PO: *${poNumber || 'N/A'}*\nAmount: *${formattedAmt}*\n\nOur team will review and post to the accounting system shortly. You'll receive a confirmation once done.`
+    ).catch(() => {});
+  }
 
   console.log(`[WhatsApp] Invoice received from ${phone}, WA invoice ID: ${waInvoice.id}`);
 }
@@ -368,8 +419,18 @@ async function processPOAccept({ phone, seller, poId, poNumber, session }) {
     return;
   }
 
-  sessionSvc.updateSession(phone, { state: 'awaiting_invoice' });
-  await whatsapp.sendInvoiceUploadPrompt({ to: `+${phone}`, poNumber }).catch(() => {});
+  // Mark accepted in JODL local state
+  poLocalStatus.set(poId, 'accepted');
+
+  // Build PO portal link and shorten if Bitly is configured
+  const frontendUrl = process.env.FRONTEND_URL || 'https://jodl-seller-portal.onrender.com';
+  const poUrl = await whatsapp._shortenUrl(`${frontendUrl}/purchase-orders/${poId}`);
+
+  // Store poUrl in session for later button taps (readiness / dispatch)
+  sessionSvc.updateSession(phone, { state: 'awaiting_invoice', poUrl });
+
+  // Send post-acceptance action menu
+  await whatsapp.sendPostAcceptanceMenu({ to: `+${phone}`, poNumber, poId, poUrl }).catch(() => {});
   console.log(`[WhatsApp] PO ${poNumber} accepted by ${phone}`);
 }
 
@@ -384,6 +445,9 @@ async function processPOReject({ phone, seller, poId, poNumber, session }) {
       if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 1000));
     }
   }
+
+  // Mark rejected in JODL local state
+  poLocalStatus.set(poId, 'rejected');
 
   sessionSvc.updateSession(phone, { state: 'awaiting_rejection_reason' });
 

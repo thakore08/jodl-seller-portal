@@ -93,12 +93,34 @@ class WhatsAppService {
     }
   }
 
+  // ─── URL Shortener (Bitly, optional) ─────────────────────────────────────
+  /**
+   * Shortens a URL via Bitly if BITLY_ACCESS_TOKEN is set, otherwise returns as-is.
+   */
+  async _shortenUrl(longUrl) {
+    const token = process.env.BITLY_ACCESS_TOKEN;
+    if (!token) return longUrl;
+    try {
+      const res = await axios.post(
+        'https://api-ssl.bitly.com/v4/shorten',
+        { long_url: longUrl },
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+      );
+      return res.data.link || longUrl;
+    } catch {
+      return longUrl;
+    }
+  }
+
   // ─── PO Notification with Interactive Buttons ─────────────────────────────
   /**
-   * Sends an interactive message to the seller with Accept / Reject quick-reply buttons.
+   * Sends an interactive message to the seller with Accept / Reject quick-reply buttons
+   * and a link to view the PO on the JODL seller portal.
    */
   async sendPONotification({ to, poNumber, amount, currency = 'INR', deliveryDate, poId, itemCount }) {
     const formattedAmount = new Intl.NumberFormat('en-IN', { style: 'currency', currency }).format(amount);
+    const frontendUrl = process.env.FRONTEND_URL || 'https://jodl-seller-portal.onrender.com';
+    const poUrl = await this._shortenUrl(`${frontendUrl}/purchase-orders/${poId}`);
 
     const payload = {
       messaging_product: 'whatsapp',
@@ -108,7 +130,7 @@ class WhatsAppService {
       interactive: {
         type: 'button',
         body: {
-          text: `📦 *New Purchase Order — JODL*\n\nPO Number: *${poNumber}*\nAmount: *${formattedAmount}*\nDelivery Date: *${deliveryDate || 'TBD'}*\nItems: ${itemCount || 0} line item(s)\n\nPlease review the PO and reply:\n✅ Reply *ACCEPT* to accept this PO\n❌ Reply *REJECT* to reject this PO\n\nOr tap the buttons below 👇`,
+          text: `📦 *New Purchase Order — JODL*\n\nPO Number: *${poNumber}*\nAmount: *${formattedAmount}*\nDelivery Date: *${deliveryDate || 'TBD'}*\nItems: ${itemCount || 0} line item(s)\n\n🔗 View PO: ${poUrl}\n\nPlease review and tap a button below 👇`,
         },
         action: {
           buttons: [
@@ -119,6 +141,36 @@ class WhatsAppService {
       },
     };
 
+    return this.sendMessage(payload);
+  }
+
+  // ─── Post-Acceptance Action Menu ───────────────────────────────────────────
+  /**
+   * Sent after seller accepts a PO. Three interactive buttons:
+   *   📋 Readiness   → bot replies with PO portal link
+   *   🚚 Dispatch    → bot replies with PO portal link
+   *   📎 Upload Invoice → triggers invoice upload flow
+   */
+  async sendPostAcceptanceMenu({ to, poNumber, poId, poUrl }) {
+    const payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: {
+          text: `✅ *PO #${poNumber} Accepted!*\n\nThank you. What would you like to do next?\n\n📋 *Material Readiness* — Update when items will be ready\n🚚 *Ready to Dispatch* — Mark items ready for dispatch\n📎 *Upload Invoice* — Send your invoice PDF\n\n🔗 View PO: ${poUrl}`,
+        },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: `readiness_${poId}`, title: '📋 Readiness' } },
+            { type: 'reply', reply: { id: `dispatch_${poId}`,  title: '🚚 Dispatch' } },
+            { type: 'reply', reply: { id: `invoice_${poId}`,   title: '📎 Upload Invoice' } },
+          ],
+        },
+      },
+    };
     return this.sendMessage(payload);
   }
 

@@ -3,50 +3,18 @@ const zoho     = require('../services/zohoBooksService');
 const whatsapp = require('../services/whatsappService');
 const { sellers } = require('../data/sellers');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
+const {
+  poLocalStatus,
+  notifiedPoIds,
+  poLineDeliveryDates,
+  poRTDData,
+  poActivityLog,
+} = require('../data/poLocalState');
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(authenticate);
-
-/**
- * In-memory local status store.
- * Zoho Books' PO status model is fixed (draft/issued/open/billed/cancelled).
- * We augment it with an additional 'dispatched' local status.
- * Key: Zoho PO ID  →  Value: 'dispatched'
- */
-const poLocalStatus = new Map();
-
-/**
- * In-memory per-line-item delivery dates, kept for backward compat with
- * WhatsApp notifications (expected_delivery_date field).
- * Key: Zoho PO ID  →  Value: [{ item_id, name, expected_date }]
- */
-const poLineDeliveryDates = new Map();
-
-/**
- * In-memory RTD (Ready-to-Dispatch) data per line item.
- * Key: Zoho PO ID  →  Value: { [itemIndex]: RTDEntry }
- *
- * RTDEntry = {
- *   rtd_eta_original:    string (YYYY-MM-DD) — set once at acceptance, immutable
- *   rtd_eta_revised:     string | null       — latest revision by seller
- *   rtd_marked_ready_at: ISO string | null
- *   rtd_marked_ready_by: string | null       — seller user id
- *   revision_log: [{ previous_eta, new_eta, revised_by, revised_at, revision_count }]
- * }
- */
-const poRTDData = new Map();
-
-/**
- * In-memory activity log per PO.
- * Key: Zoho PO ID  →  Value: [{ event, actor, timestamp, details }]
- * Most-recent-first (unshift on each append).
- */
-const poActivityLog = new Map();
-
-// Track POs for which a WhatsApp notification has already been sent this session
-const notifiedPoIds = new Set();
 
 // Helper: append an event to a PO's activity log
 function appendActivity(poId, event, actor, details = {}) {
