@@ -399,20 +399,26 @@ async function handleMediaUpload(message, seller, phone) {
 
 // ─── Helper: Process PO Accept ────────────────────────────────────────────────
 async function processPOAccept({ phone, seller, poId, poNumber, session }) {
+  console.log(`[Accept] Starting accept for poId=${poId} poNumber=${poNumber} phone=${phone}`);
+
   // Retry logic for Zoho API
   let accepted = false;
+  let zohoErr  = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      await zoho.acceptPurchaseOrder(poId);
+      const res = await zoho.acceptPurchaseOrder(poId);
+      console.log(`[Accept] Zoho acceptPurchaseOrder response:`, JSON.stringify(res));
       accepted = true;
       break;
     } catch (err) {
-      console.warn(`[WhatsApp] Accept PO attempt ${attempt}/3 failed:`, err.message);
+      zohoErr = err;
+      console.error(`[Accept] Zoho accept attempt ${attempt}/3 failed:`, err.message, err.response?.data || '');
       if (attempt < 3) await new Promise(r => setTimeout(r, attempt * 1000));
     }
   }
 
   if (!accepted) {
+    console.error(`[Accept] All Zoho retries failed for ${poNumber}. Last error:`, zohoErr?.message);
     await whatsapp.sendTextMessage(`+${phone}`,
       `⚠️ Could not accept PO *${poNumber}* at this time. Please try again or use the seller portal.`
     ).catch(() => {});
@@ -421,16 +427,25 @@ async function processPOAccept({ phone, seller, poId, poNumber, session }) {
 
   // Mark accepted in JODL local state
   poLocalStatus.set(poId, 'accepted');
+  console.log(`[Accept] poLocalStatus set to "accepted" for poId=${poId}`);
 
   // Build PO portal link and shorten if Bitly is configured
   const frontendUrl = process.env.FRONTEND_URL || 'https://jodl-seller-portal.onrender.com';
   const poUrl = await whatsapp._shortenUrl(`${frontendUrl}/purchase-orders/${poId}`);
+  console.log(`[Accept] poUrl=${poUrl}`);
 
   // Store poUrl in session for later button taps (readiness / dispatch)
   sessionSvc.updateSession(phone, { state: 'awaiting_invoice', poUrl });
 
   // Send post-acceptance action menu
-  await whatsapp.sendPostAcceptanceMenu({ to: `+${phone}`, poNumber, poId, poUrl }).catch(() => {});
+  console.log(`[Accept] Sending post-acceptance menu to +${phone}`);
+  try {
+    await whatsapp.sendPostAcceptanceMenu({ to: `+${phone}`, poNumber, poId, poUrl });
+    console.log(`[Accept] Post-acceptance menu sent ✅`);
+  } catch (err) {
+    console.error(`[Accept] sendPostAcceptanceMenu FAILED:`, err.message, err.response?.data || '');
+  }
+
   console.log(`[WhatsApp] PO ${poNumber} accepted by ${phone}`);
 }
 
