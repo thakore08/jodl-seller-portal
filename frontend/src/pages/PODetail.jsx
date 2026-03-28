@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle, FileText,
   Calendar, Package,
-  MapPin, User as UserIcon, ClipboardList,
+  MapPin, User as UserIcon, ClipboardList, Sparkles,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import Modal from '../components/Modal';
 import POStatusStepper from '../components/POStatusStepper';
-import InvoiceSplitModal from '../components/InvoiceSplitModal';
+import PurchaseBillUploadModal from '../components/PurchaseBillUploadModal';
 import RTDLineItemsPanel from '../components/RTDLineItemsPanel';
 import ActivityLogDrawer from '../components/ActivityLogDrawer';
 import { useAuth } from '../context/AuthContext';
@@ -218,7 +218,7 @@ export default function PODetail() {
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState('');
   const [actionMsg,    setActionMsg]    = useState('');
-  const [showInvoice,  setShowInvoice]  = useState(false);
+  const [showPurchaseBill, setShowPurchaseBill] = useState(false);
   const [showAccept,   setShowAccept]   = useState(false);
   const [showReject,   setShowReject]   = useState(false);
   const [showActivity, setShowActivity] = useState(false);
@@ -329,7 +329,7 @@ export default function PODetail() {
   // Suppress pages for unsynced POs (draft, unknown)
   if (effectiveStatus === null) {
     return (
-      <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-4">
+      <div className="max-w-4xl mx-auto space-y-4">
         <Link to="/purchase-orders" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
           <ArrowLeft className="h-4 w-4" /> Back to Purchase Orders
         </Link>
@@ -344,7 +344,23 @@ export default function PODetail() {
   const buyerName    = typeof po.customer_name === 'string' ? po.customer_name : null;
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 max-w-4xl mx-auto">
+    <div className="space-y-5 max-w-4xl mx-auto">
+      <div className="page-hero">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="hero-title">Purchase Order Control</h2>
+            <p className="hero-subtitle">Validate line items, update RTD status, and progress to purchase bill upload.</p>
+            <div className="mt-3">
+              <span className="chip-soft">PO {po.purchaseorder_number}</span>
+            </div>
+          </div>
+          <span className="status-live text-white/90">
+            <Sparkles className="h-3.5 w-3.5" />
+            {effectiveStatus || 'Issued'}
+          </span>
+        </div>
+      </div>
+
       {/* Back */}
       <Link
         to="/purchase-orders"
@@ -369,7 +385,7 @@ export default function PODetail() {
       <div className="card p-4 sm:p-6 space-y-4">
 
         {/* Row 1: PO number + status badge + contextual action */}
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-bold text-brand-600 dark:text-brand-400">
@@ -380,7 +396,7 @@ export default function PODetail() {
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{po.vendor_name || 'JODL'}</p>
           </div>
 
-          <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <div className="flex w-full flex-col items-start gap-1.5 sm:w-auto sm:items-end shrink-0">
             {/* Primary contextual action */}
             {contextualAction === 'accept' && (
               <button
@@ -394,10 +410,10 @@ export default function PODetail() {
             )}
             {contextualAction === 'create_invoice' && (
               <button
-                onClick={() => setShowInvoice(true)}
+                onClick={() => setShowPurchaseBill(true)}
                 className="btn-primary"
               >
-                <FileText className="h-4 w-4" /> Create Invoice
+                <FileText className="h-4 w-4" /> Upload Purchase Bill
               </button>
             )}
 
@@ -429,7 +445,7 @@ export default function PODetail() {
         </div>
 
         {/* Row 2: Metadata */}
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 border-t border-gray-100 dark:border-gray-700 pt-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 border-t border-gray-100 dark:border-gray-700 pt-4">
           <div className="flex items-center gap-2 text-sm">
             <Calendar className="h-4 w-4 text-gray-400 dark:text-gray-500 shrink-0" />
             <div>
@@ -518,7 +534,7 @@ export default function PODetail() {
                 {item.description && (
                   <p className="text-xs text-gray-500 dark:text-gray-400">{item.description}</p>
                 )}
-                <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400 pt-1">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-600 dark:text-gray-400 pt-1">
                   <span>Qty: {item.quantity} {item.unit ? `(${item.unit})` : ''}</span>
                   <span>Rate: {po.currency_code} {Number(item.rate || 0).toLocaleString('en-IN')}</span>
                   <span className="font-semibold text-gray-800 dark:text-gray-200">
@@ -583,14 +599,14 @@ export default function PODetail() {
 
       {/* ── Modals ───────────────────────────────────────────────────────────── */}
 
-      {/* Invoice Split Modal */}
-      <InvoiceSplitModal
-        open={showInvoice}
+      {/* Purchase Bill Upload Modal */}
+      <PurchaseBillUploadModal
+        open={showPurchaseBill}
         po={po}
-        onClose={() => setShowInvoice(false)}
+        onClose={() => setShowPurchaseBill(false)}
         onSuccess={() => {
-          setShowInvoice(false);
-          setActionMsg('Invoice posted to Zoho Books successfully!');
+          setShowPurchaseBill(false);
+          setActionMsg('Purchase bill submitted successfully!');
           loadPO();
         }}
       />

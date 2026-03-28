@@ -76,6 +76,47 @@ export default function InvoiceFormPane({
   const isOverridden = field => headerOverrides?.has(field);
 
   const fieldCls = 'input border-0 focus:ring-0 bg-transparent';
+  const mappingPreview = extractResult ? {
+    ocr: {
+      is_scanned: !!extractResult.is_scanned,
+      ocr_used: !!extractResult.ocr_used,
+      ocr_success: !!extractResult.ocr_success,
+    },
+    backend_header_values: {
+      invoice_number: extractResult?.header?.invoice_number?.value ?? null,
+      invoice_date: extractResult?.header?.invoice_date?.value ?? null,
+      due_date: extractResult?.header?.due_date?.value ?? null,
+      seller_name: extractResult?.header?.seller_name?.value ?? null,
+      seller_gstin: extractResult?.header?.seller_gstin?.value ?? null,
+      buyer_name: extractResult?.header?.buyer_name?.value ?? null,
+      buyer_gstin: extractResult?.header?.buyer_gstin?.value ?? null,
+      place_of_supply: extractResult?.header?.place_of_supply?.value ?? null,
+      payment_terms: extractResult?.header?.payment_terms?.value ?? null,
+      taxable_value: extractResult?.header?.taxable_value?.value ?? null,
+      total_amount: extractResult?.header?.total_amount?.value ?? null,
+    },
+    ui_header_values: {
+      invoice_number: header.invoice_number || '',
+      invoice_date: header.invoice_date || '',
+      due_date: header.due_date || '',
+      seller_name: header.seller_name || '',
+      seller_gstin: header.seller_gstin || '',
+      buyer_name: header.buyer_name || '',
+      buyer_gstin: header.buyer_gstin || '',
+      place_of_supply: header.place_of_supply || '',
+      payment_terms: header.payment_terms || '',
+      taxable_value: header.taxable_value || '',
+      total_amount: header.total_amount || '',
+    },
+    line_items_count: {
+      backend: Array.isArray(extractResult?.line_items) ? extractResult.line_items.length : 0,
+      ui: Array.isArray(lineItems) ? lineItems.length : 0,
+    },
+    first_line_item: {
+      backend: extractResult?.line_items?.[0] || null,
+      ui: lineItems?.[0] || null,
+    },
+  } : null;
 
   return (
     <div ref={paneRef} className="flex flex-col min-h-full">
@@ -165,9 +206,9 @@ export default function InvoiceFormPane({
             <button
               type="button"
               onClick={() => onToggleSection('header')}
-              className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors"
+              className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover-bg-gray-800/40 transition-colors"
             >
-              <span>1 — Invoice Header</span>
+              <span>1 — Bill Header</span>
               <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${collapsedSections.header ? '-rotate-90' : ''}`} />
             </button>
 
@@ -176,7 +217,7 @@ export default function InvoiceFormPane({
 
                 {/* Invoice Number */}
                 <ConfidenceField
-                  label="Invoice Number"
+                  label="Bill Number"
                   required
                   confidence={conf('invoice_number')}
                   manuallyEdited={isOverridden('invoice_number')}
@@ -192,7 +233,7 @@ export default function InvoiceFormPane({
 
                 {/* Invoice Date */}
                 <ConfidenceField
-                  label="Invoice Date"
+                  label="Bill Date"
                   required
                   confidence={conf('invoice_date')}
                   manuallyEdited={isOverridden('invoice_date')}
@@ -263,7 +304,7 @@ export default function InvoiceFormPane({
 
                 {/* Buyer Name */}
                 <ConfidenceField
-                  label="Buyer / Bill-To Name"
+                  label="Buyer Name"
                   confidence={conf('buyer_name')}
                   manuallyEdited={isOverridden('buyer_name')}
                   onFocus={() => onFieldFocus && onFieldFocus(extractResult?.header?.buyer_name?.value)}
@@ -389,6 +430,25 @@ export default function InvoiceFormPane({
               </div>
             )}
           </div>
+
+          {/* Section 5 — OCR Debug (temporary) */}
+          {mappingPreview && (
+            <div className="border-b border-gray-100 dark:border-gray-700">
+              <details>
+                <summary className="cursor-pointer list-none w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
+                  <span>5 — OCR Debug Response</span>
+                  <span className="text-xs font-normal text-gray-500 dark:text-gray-400">Expand to view raw backend + UI mapping</span>
+                </summary>
+                <div className="px-4 pb-5">
+                  <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-600 p-3">
+                    <pre className="text-[11px] leading-5 whitespace-pre-wrap break-all text-gray-700 dark:text-gray-200">
+                      {JSON.stringify(mappingPreview, null, 2)}
+                    </pre>
+                  </div>
+                </div>
+              </details>
+            </div>
+          )}
         </>
       )}
     </div>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw, Search, Filter } from 'lucide-react';
+import { RefreshCw, Search, Filter, Sparkles } from 'lucide-react';
 import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import { format } from 'date-fns';
@@ -71,25 +71,42 @@ export default function PurchaseOrders() {
   });
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="space-y-5">
+      <div className="page-hero">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="hero-title">Purchase Order Operations</h2>
+            <p className="hero-subtitle">Manage order acceptance, dispatch readiness, and billing transition.</p>
+            <div className="mt-3 flex items-center gap-2">
+              <span className="chip-soft">Lifecycle Tracking</span>
+              <span className="chip-soft">Role-aware Actions</span>
+            </div>
+          </div>
+          <span className="status-live text-white/90">
+            <Sparkles className="h-3.5 w-3.5" />
+            Active
+          </span>
+        </div>
+      </div>
+
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">Purchase Orders</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+          <h1 className="text-base font-bold text-gray-900 dark:text-gray-100">Purchase Orders</h1>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {!loading && `${filtered.length} order${filtered.length !== 1 ? 's' : ''}`}
           </p>
         </div>
-        <button onClick={loadPOs} disabled={loading} className="btn-outline">
+        <button onClick={loadPOs} disabled={loading} className="btn-outline shimmer-on-hover">
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <div className="control-dock flex flex-col gap-3 sm:flex-row sm:items-center">
         {/* Search */}
-        <div className="relative flex-1 max-w-xs">
+        <div className="relative flex-1 min-w-0 sm:min-w-[260px] max-w-xl">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
@@ -101,7 +118,7 @@ export default function PurchaseOrders() {
         </div>
 
         {/* Status tabs */}
-        <div className="flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
+        <div className="dock-tabs">
           <Filter className="ml-1 h-4 w-4 text-gray-400 dark:text-gray-500 shrink-0" />
           {STATUS_FILTERS.map(f => {
             const isActive = activeFilter.label === f.label;
@@ -109,9 +126,9 @@ export default function PurchaseOrders() {
               <button
                 key={f.label}
                 onClick={() => setActiveFilter(f)}
-                className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                className={`rounded-lg px-3 py-1 text-xs font-semibold transition-colors ${
                   isActive
-                    ? 'bg-brand-600 text-white'
+                    ? 'bg-gradient-to-r from-brand-600 to-brand-500 text-white'
                     : 'text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700'
                 }`}
               >
@@ -137,9 +154,9 @@ export default function PurchaseOrders() {
       ) : (
         <>
           {/* Mobile cards — visible below md */}
-          <ul className="space-y-3 md:hidden">
+          <ul className="space-y-3 md:hidden motion-stagger">
             {filtered.map(po => (
-              <li key={po.purchaseorder_id} className="card p-4">
+              <li key={po.purchaseorder_id} className="card glow-hover p-4">
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <p className="text-sm font-bold text-brand-600 dark:text-brand-400">{po.purchaseorder_number}</p>
                   <StatusBadge status={getEffectiveStatus(po)} />
@@ -190,7 +207,7 @@ export default function PurchaseOrders() {
                       </td>
                       <td className="table-td"><StatusBadge status={getEffectiveStatus(po)} /></td>
                       <td className="table-td">
-                        <Link to={`/purchase-orders/${po.purchaseorder_id}`} className="btn-outline px-3 py-1 text-xs">
+                        <Link to={`/purchase-orders/${po.purchaseorder_id}`} className="btn-table-action">
                           View
                         </Link>
                       </td>
