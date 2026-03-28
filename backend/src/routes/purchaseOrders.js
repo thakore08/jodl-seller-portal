@@ -6,10 +6,14 @@ const { authenticate, requireRole } = require('../middleware/authMiddleware');
 const {
   poLocalStatus,
   notifiedPoIds,
+  addNotifiedPoId,
   poLineDeliveryDates,
   poRTDData,
   poActivityLog,
 } = require('../data/poLocalState');
+
+// Only notify POs dated within this window (guards against re-spam after deploy)
+const NOTIFY_WINDOW_MS = (parseInt(process.env.PO_NOTIFY_WINDOW_DAYS || '3', 10)) * 24 * 60 * 60 * 1000;
 
 const router = express.Router();
 
@@ -65,13 +69,18 @@ router.get('/', async (req, res) => {
     if (!whatsapp.isConfigured) {
       console.warn('[AutoNotify] WhatsApp not configured — skipping PO notifications');
     } else {
-      const newPOs = filtered.filter(
-        po => (po.status === 'issued' || po.status === 'open') && !notifiedPoIds.has(po.purchaseorder_id)
-      );
+      const now = Date.now();
+      const newPOs = filtered.filter(po => {
+        if (po.status !== 'issued' && po.status !== 'open') return false;
+        if (notifiedPoIds.has(po.purchaseorder_id)) return false;
+        // Time guard: skip POs older than NOTIFY_WINDOW_MS (prevents re-spam after deploy)
+        const poDate = po.date ? new Date(po.date).getTime() : now;
+        return (now - poDate) <= NOTIFY_WINDOW_MS;
+      });
       console.log(`[AutoNotify] Checking ${filtered.length} POs — ${newPOs.length} new to notify`);
       newPOs.forEach(po => {
-        notifiedPoIds.add(po.purchaseorder_id); // add immediately to prevent race-condition duplicates
-        console.log(`[AutoNotify] Triggering WA notification for ${po.purchaseorder_number} (vendor_id=${po.vendor_id}, status=${po.status})`);
+        addNotifiedPoId(po.purchaseorder_id); // persist immediately
+        console.log(`[AutoNotify] Triggering WA for ${po.purchaseorder_number} (vendor_id=${po.vendor_id}, status=${po.status})`);
         whatsapp.triggerPONotification(po)
           .then(result => console.log(`[AutoNotify] Result for ${po.purchaseorder_number}:`, JSON.stringify(result)))
           .catch(err => console.error(`[AutoNotify] FAILED for ${po.purchaseorder_number}:`, err.message));
