@@ -449,6 +449,28 @@ router.post('/notify-po', authenticate, async (req, res) => {
   res.json({ success: true, result });
 });
 
+// ─── GET /api/whatsapp/phone-numbers (auth required) ─────────────────────────
+// Fetches all phone numbers linked to the WABA from Meta
+router.get('/phone-numbers', authenticate, async (req, res) => {
+  const axios      = require('axios');
+  const wabaId     = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
+  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+  const apiVersion  = process.env.WHATSAPP_API_VERSION || 'v19.0';
+
+  try {
+    const response = await axios.get(
+      `https://graph.facebook.com/${apiVersion}/${wabaId}/phone_numbers`,
+      {
+        params: { fields: 'id,display_phone_number,verified_name,quality_rating,status' },
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }
+    );
+    res.json({ success: true, waba_id: wabaId, phone_numbers: response.data.data });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.response?.data || e.message });
+  }
+});
+
 // ─── GET /api/whatsapp/debug (auth required) ──────────────────────────────────
 // Returns Meta phone number info + sends a test text message to reveal actual API response
 router.get('/debug', authenticate, async (req, res) => {
