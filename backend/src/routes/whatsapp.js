@@ -93,11 +93,10 @@ async function handleInteractiveReply(message, seller, phone) {
   } else if (action === 'reject') {
     await processPOReject({ phone, seller, poId: resolvedPoId, poNumber: resolvedPoNumber, session });
 
-  } else if (action === 'readiness' || action === 'dispatch') {
-    // Seller tapped Material Readiness or Ready to Dispatch — send portal link
-    const label = action === 'readiness' ? 'Material Readiness' : 'Ready to Dispatch';
+  } else if (action === 'portal' || action === 'readiness' || action === 'dispatch') {
+    // Seller tapped View PO / Material Readiness / Ready to Dispatch — send portal link
     await whatsapp.sendTextMessage(`+${phone}`,
-      `To update *${label}* for PO *${resolvedPoNumber}*, please visit the JODL Seller Portal:\n\n🔗 ${resolvedPoUrl || 'https://jodl-seller-portal.onrender.com'}`
+      `View and manage PO ${resolvedPoNumber} here:\n${resolvedPoUrl || 'https://jodl-seller-portal.onrender.com'}`
     ).catch(() => {});
 
   } else if (action === 'invoice') {
@@ -446,8 +445,13 @@ async function processPOAccept({ phone, seller, poId, poNumber, session }) {
   // Store poUrl in session for later button taps (readiness / dispatch)
   sessionSvc.updateSession(phone, { state: 'awaiting_invoice', poUrl });
 
+  // Send text confirmation first (diagnostic — confirms delivery path is open)
+  await whatsapp.sendTextMessage(`+${phone}`,
+    `PO ${poNumber} accepted! Sending action menu...`
+  ).catch(err => console.error('[Accept] Pre-menu text FAILED:', err.message));
+
   // Send post-acceptance action menu
-  console.log(`[Accept] Sending post-acceptance menu to +${phone}, poId=${poId}, poNumber=${poNumber}, poUrl=${poUrl}`);
+  console.log(`[Accept] Sending post-acceptance menu to +${phone}, poId=${poId}, poNumber=${poNumber}`);
   try {
     const menuResult = await whatsapp.sendPostAcceptanceMenu({ to: `+${phone}`, poNumber, poId, poUrl });
     console.log(`[Accept] Post-acceptance menu sent ✅ msgId=${menuResult?.messages?.[0]?.id}`);
