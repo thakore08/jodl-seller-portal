@@ -447,12 +447,12 @@ async function processPOAccept({ phone, seller, poId, poNumber, session }) {
   sessionSvc.updateSession(phone, { state: 'awaiting_invoice', poUrl });
 
   // Send post-acceptance action menu
-  console.log(`[Accept] Sending post-acceptance menu to +${phone}`);
+  console.log(`[Accept] Sending post-acceptance menu to +${phone}, poId=${poId}, poNumber=${poNumber}, poUrl=${poUrl}`);
   try {
-    await whatsapp.sendPostAcceptanceMenu({ to: `+${phone}`, poNumber, poId, poUrl });
-    console.log(`[Accept] Post-acceptance menu sent ✅`);
+    const menuResult = await whatsapp.sendPostAcceptanceMenu({ to: `+${phone}`, poNumber, poId, poUrl });
+    console.log(`[Accept] Post-acceptance menu sent ✅ msgId=${menuResult?.messages?.[0]?.id}`);
   } catch (err) {
-    console.error(`[Accept] sendPostAcceptanceMenu FAILED:`, err.message, err.response?.data || '');
+    console.error(`[Accept] sendPostAcceptanceMenu FAILED:`, err.message, JSON.stringify(err.response?.data || ''));
   }
 
   console.log(`[WhatsApp] PO ${poNumber} accepted by ${phone}`);
