@@ -449,6 +449,27 @@ router.post('/notify-po', authenticate, async (req, res) => {
   res.json({ success: true, result });
 });
 
+// ─── GET /api/whatsapp/app-info (auth required) ──────────────────────────────
+// Fetches app details including secret from Meta
+router.get('/app-info', authenticate, async (req, res) => {
+  const axios       = require('axios');
+  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+  const appId       = process.env.WHATSAPP_APP_ID;
+  const apiVersion  = process.env.WHATSAPP_API_VERSION || 'v19.0';
+
+  try {
+    const response = await axios.get(
+      `https://graph.facebook.com/${apiVersion}/${appId}`,
+      {
+        params: { fields: 'id,name,secret', access_token: accessToken },
+      }
+    );
+    res.json({ success: true, app: response.data });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.response?.data || e.message });
+  }
+});
+
 // ─── GET /api/whatsapp/token-info (auth required) ────────────────────────────
 // Inspects the WhatsApp access token — shows app, scopes, expiry, linked WABAs
 router.get('/token-info', authenticate, async (req, res) => {
