@@ -486,6 +486,82 @@ async function processPOReject({ phone, seller, poId, poNumber, session }) {
   console.log(`[WhatsApp] PO ${poNumber} rejected by ${phone}`);
 }
 
+// ─── In-memory rate limiter & audit log for admin send ───────────────────────
+// Shape: Map<email, { count: number, windowStart: number }>
+const sendRateMap = new Map();
+const RATE_LIMIT   = parseInt(process.env.WA_ADMIN_RATE_LIMIT  || '10', 10);
+const RATE_WINDOW  = parseInt(process.env.WA_ADMIN_RATE_WINDOW || '3600000', 10); // 1 hour ms
+
+// Simple append-only audit log (in-memory; survives restart via logs only)
+const waAdminAuditLog = [];
+
+function checkRateLimit(email) {
+  const now   = Date.now();
+  const entry = sendRateMap.get(email) || { count: 0, windowStart: now };
+  if (now - entry.windowStart > RATE_WINDOW) {
+    entry.count       = 0;
+    entry.windowStart = now;
+  }
+  if (entry.count >= RATE_LIMIT) return false;
+  entry.count++;
+  sendRateMap.set(email, entry);
+  return true;
+}
+
+// ─── GET /api/whatsapp/sellers (admin only) ───────────────────────────────────
+// Returns sellers with their WhatsApp numbers so the admin modal can show "To: ..."
+router.get('/sellers', authenticate, (req, res) => {
+  if (req.seller.email !== 'seller@demo.com' && req.seller.role !== 'admin') {
+    return res.status(403).json({ error: true, message: 'Admin access required' });
+  }
+  const safe = sellers.map(({ id, name, company, vendor_id, whatsapp_number, whatsapp_enabled, email }) => ({
+    id, name, company, vendor_id, whatsapp_number, whatsapp_enabled, email,
+  }));
+  res.json({ success: true, sellers: safe });
+});
+
+// ─── POST /api/whatsapp/send (admin only) ────────────────────────────────────
+// Sends a freeform or templated WhatsApp message to a seller.
+// Body: { to, message, template_id, po_id, po_number, vendor_id }
+router.post('/send', authenticate, async (req, res) => {
+  if (req.seller.email !== 'seller@demo.com' && req.seller.role !== 'admin') {
+    return res.status(403).json({ error: true, message: 'Admin access required' });
+  }
+
+  const { to, message, template_id, po_id, po_number, vendor_id } = req.body;
+
+  if (!to)      return res.status(400).json({ error: true, message: 'Recipient phone number (to) is required' });
+  if (!message) return res.status(400).json({ error: true, message: 'Message body is required' });
+
+  // Rate limit: max N messages per admin per hour
+  if (!checkRateLimit(req.seller.email)) {
+    return res.status(429).json({
+      error:   true,
+      message: `Rate limit reached. You can send at most ${RATE_LIMIT} messages per hour. Please try again later.`,
+    });
+  }
+
+  // Send via WhatsApp Cloud API
+  const result = await whatsapp.sendTextMessage(to, message);
+
+  // Audit log
+  const logEntry = {
+    sent_by:       req.seller.email,
+    seller_id:     req.seller.id,
+    vendor_id:     vendor_id || null,
+    po_id:         po_id     || null,
+    po_number:     po_number || null,
+    template_used: template_id || 'custom_only',
+    to,
+    timestamp:     new Date().toISOString(),
+    msgId:         result?.messages?.[0]?.id || null,
+  };
+  waAdminAuditLog.push(logEntry);
+  console.log('[WhatsApp][AdminSend]', JSON.stringify(logEntry));
+
+  res.json({ success: true, result });
+});
+
 // ─── POST /api/whatsapp/send-test (auth required) ────────────────────────────
 router.post('/send-test', authenticate, async (req, res) => {
   const { to, message } = req.body;
