@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, MessageCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { X, MessageCircle, Plus, Trash2 } from 'lucide-react';
 import api from '../services/api';
 
 // ─── WhatsApp SVG icon ────────────────────────────────────────────────────────
@@ -11,238 +11,256 @@ function WhatsAppIcon({ size = 20, color = '#25D366' }) {
   );
 }
 
-// ─── Message templates ────────────────────────────────────────────────────────
+// ─── Template definitions ─────────────────────────────────────────────────────
 const TEMPLATES = [
-  {
-    id: 'post_acceptance',
-    label: 'Post Acceptance Message',
-    body: ({ seller_name, po_number }) =>
-      `Dear ${seller_name},\n\nYour Purchase Order #${po_number} has been accepted successfully.\n\nPlease proceed with the next steps as discussed.\n\nThank you,\nTeam JODL`,
-  },
-  {
-    id: 'payment_reminder',
-    label: 'Payment Reminder',
-    body: ({ seller_name, po_number }) =>
-      `Dear ${seller_name},\n\nThis is a reminder regarding the pending payment for Purchase Order #${po_number}.\n\nKindly process the payment at your earliest convenience.\n\nThank you,\nTeam JODL`,
-  },
-  {
-    id: 'shipment_update',
-    label: 'Shipment Update',
-    body: ({ seller_name, po_number }) =>
-      `Dear ${seller_name},\n\nWe wanted to update you on the shipment status for Purchase Order #${po_number}.\n\nPlease log in to the JODL Seller Portal for full details.\n\nThank you,\nTeam JODL`,
-  },
-  {
-    id: 'order_confirmation',
-    label: 'Order Confirmation',
-    body: ({ seller_name, po_number }) =>
-      `Dear ${seller_name},\n\nThis message confirms your Purchase Order #${po_number} with JODL.\n\nPlease review the order details and confirm your acceptance.\n\nThank you,\nTeam JODL`,
-  },
-  {
-    id: 'document_request',
-    label: 'Document Request',
-    body: ({ seller_name, po_number }) =>
-      `Dear ${seller_name},\n\nWe require certain documents for Purchase Order #${po_number}.\n\nPlease upload the necessary documents via the JODL Seller Portal.\n\nThank you,\nTeam JODL`,
-  },
-  {
-    id: 'custom_only',
-    label: 'Custom Only',
-    body: () => '',
-  },
+  { key: 'po_issued',          label: 'T1: PO Issued',                  hasExtraFields: false },
+  { key: 'material_readiness', label: 'T2: Material Readiness Status',   hasExtraFields: false },
+  { key: 'shipment_planned',   label: 'T3: Shipment Planned Details',    hasExtraFields: true  },
+  { key: 'update_invoice',     label: 'T4: Update Invoice',              hasExtraFields: false },
+  { key: 'bill_payout',        label: 'T5: Bill Payout Details',         hasExtraFields: false },
+  { key: 'adhoc',              label: 'T6: Adhoc Message',               hasExtraFields: true  },
 ];
+
+const emptyRow = () => ({ itemName: '', qty: '', vehicleNo: '' });
 
 // ─── Modal component ──────────────────────────────────────────────────────────
 export default function WhatsAppMessageModal({ po, sellerInfo, onClose, onSent }) {
-  const [customText,          setCustomText]          = useState('');
-  const [selectedTemplateId,  setSelectedTemplateId]  = useState('');
-  const [preview,             setPreview]             = useState('');
-  const [sending,             setSending]             = useState(false);
-  const [error,               setError]               = useState('');
-  const [showConfirm,         setShowConfirm]         = useState(false);
-  const [successMsg,          setSuccessMsg]          = useState('');
+  const [selectedKey,     setSelectedKey]     = useState('');
+  const [adhocMessage,    setAdhocMessage]    = useState('');
+  const [vehicleNumber,   setVehicleNumber]   = useState('');
+  const [arrivalDatetime, setArrivalDatetime] = useState('');
+  const [loadingPlan,     setLoadingPlan]     = useState([emptyRow()]);
+  const [sending,         setSending]         = useState(false);
+  const [error,           setError]           = useState('');
+  const [successMsg,      setSuccessMsg]      = useState('');
 
-  const template = TEMPLATES.find(t => t.id === selectedTemplateId);
-
-  // Rebuild preview whenever custom text or template changes
-  useEffect(() => {
-    const vars = {
-      seller_name: sellerInfo?.name || sellerInfo?.company || po.vendor_name || 'Seller',
-      po_number:   po.purchaseorder_number || po.purchaseorder_id,
-    };
-    const templateBody = template ? template.body(vars) : '';
-    const parts = [customText.trim(), templateBody].filter(Boolean);
-    setPreview(parts.join('\n\n'));
-  }, [customText, template, sellerInfo, po]);
-
-  const handleSendClick = () => {
+  // Reset extra fields on template change
+  const handleTemplateChange = (key) => {
+    setSelectedKey(key);
+    setAdhocMessage('');
+    setVehicleNumber('');
+    setArrivalDatetime('');
+    setLoadingPlan([emptyRow()]);
     setError('');
+    setSuccessMsg('');
+  };
+
+  // Loading plan helpers
+  const updateRow = (i, field, val) =>
+    setLoadingPlan(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: val } : r));
+  const addRow    = () => setLoadingPlan(prev => [...prev, emptyRow()]);
+  const removeRow = i  => setLoadingPlan(prev => prev.filter((_, idx) => idx !== i));
+
+  const handleSend = async () => {
+    setError('');
+    setSuccessMsg('');
+
     if (!sellerInfo?.whatsapp_number) {
       setError('Seller WhatsApp number not registered.');
       return;
     }
-    if (!customText.trim() && !selectedTemplateId) {
-      setError('Please enter a custom message or select a template.');
+    if (!selectedKey) {
+      setError('Please select a template.');
       return;
     }
-    if (!preview.trim()) {
-      setError('Message preview is empty.');
-      return;
-    }
-    setShowConfirm(true);
-  };
 
-  const confirmSend = async () => {
+    const payload = {};
+    if (selectedKey === 'shipment_planned') {
+      if (!vehicleNumber)   return setError('Vehicle number is required for T3.');
+      if (!arrivalDatetime) return setError('Arrival date/time is required for T3.');
+      payload.vehicleNumber   = vehicleNumber;
+      payload.arrivalDatetime = arrivalDatetime;
+      payload.loadingPlan     = loadingPlan.filter(r => r.itemName || r.qty || r.vehicleNo);
+    }
+    if (selectedKey === 'adhoc') {
+      if (!adhocMessage.trim()) return setError('Message is required for Adhoc template.');
+      payload.message = adhocMessage.trim();
+    }
+
     setSending(true);
-    setError('');
     try {
-      await api.post('/whatsapp/send', {
-        to:          sellerInfo.whatsapp_number,
-        message:     preview,
-        template_id: selectedTemplateId || 'custom_only',
-        po_id:       po.purchaseorder_id,
-        po_number:   po.purchaseorder_number,
-        vendor_id:   po.vendor_id,
+      const { data } = await api.post('/admin/notifications/send', {
+        templateKey: selectedKey,
+        poId:        po.purchaseorder_id,
+        sellerId:    sellerInfo?.id || undefined,
+        payload,
       });
-      setShowConfirm(false);
-      setSuccessMsg(`Message sent to ${sellerInfo.name || sellerInfo.company} successfully.`);
-      setTimeout(() => { onSent?.(); onClose(); }, 1800);
+      setSuccessMsg(`Sent! WA message ID: ${data.messageId || 'N/A'} → ${data.sentTo || ''}`);
+      setTimeout(() => { onSent?.(); onClose(); }, 2000);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to send message. Please try again.');
-      setShowConfirm(false);
+      setError(err.response?.data?.message || 'Failed to send notification.');
     } finally {
       setSending(false);
     }
   };
 
   return (
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={e => e.target === e.currentTarget && onClose()}>
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
 
-          {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700 shrink-0">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: '#25D366' }}>
-                <WhatsAppIcon size={16} color="white" />
-              </div>
-              <h2 className="text-base font-bold text-gray-900 dark:text-gray-100">Send WhatsApp Message</h2>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: '#25D366' }}>
+              <WhatsAppIcon size={16} color="white" />
             </div>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
-              <X className="h-5 w-5" />
-            </button>
+            <h2 className="text-base font-bold text-gray-900 dark:text-gray-100">Send WhatsApp Notification</h2>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+
+          {/* To */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">To</label>
+            <p className="mt-1 text-sm font-medium text-gray-800 dark:text-gray-200">
+              {sellerInfo
+                ? `${sellerInfo.name || sellerInfo.company}${sellerInfo.whatsapp_number ? ` (${sellerInfo.whatsapp_number})` : ' — no number'}`
+                : po.vendor_name || 'Unknown vendor'}
+            </p>
+            {!sellerInfo?.whatsapp_number && (
+              <p className="mt-0.5 text-xs text-red-500">Seller WhatsApp number not registered.</p>
+            )}
           </div>
 
-          {/* Body */}
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* PO reference */}
+          <div>
+            <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Purchase Order</label>
+            <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{po.purchaseorder_number}</p>
+          </div>
 
-            {/* To */}
-            <div>
-              <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">To</label>
-              <p className="mt-1 text-sm font-medium text-gray-800 dark:text-gray-200">
-                {sellerInfo
-                  ? `${sellerInfo.name || sellerInfo.company}${sellerInfo.whatsapp_number ? ` (${sellerInfo.whatsapp_number})` : ' — no number'}`
-                  : po.vendor_name || 'Unknown vendor'}
-              </p>
-              {!sellerInfo?.whatsapp_number && (
-                <p className="mt-0.5 text-xs text-red-500">Seller WhatsApp number not registered.</p>
-              )}
+          {/* Template select */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+              Template <span className="text-red-500">*</span>
+            </label>
+            <select
+              className="input w-full"
+              value={selectedKey}
+              onChange={e => handleTemplateChange(e.target.value)}
+            >
+              <option value="">— Select Template —</option>
+              {TEMPLATES.map(t => (
+                <option key={t.key} value={t.key}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* ─── T3: Shipment Planned extra fields ─────────────────────────────── */}
+          {selectedKey === 'shipment_planned' && (
+            <div className="space-y-3 rounded-lg bg-gray-50 dark:bg-gray-700/40 p-4 border border-gray-100 dark:border-gray-700">
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Shipment Details</p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Vehicle Number</label>
+                  <input
+                    type="text"
+                    className="input w-full"
+                    placeholder="e.g., MH01AB1234"
+                    value={vehicleNumber}
+                    onChange={e => setVehicleNumber(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Arrival Date & Time</label>
+                  <input
+                    type="datetime-local"
+                    className="input w-full"
+                    value={arrivalDatetime}
+                    onChange={e => setArrivalDatetime(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs text-gray-500 dark:text-gray-400">Loading Plan (optional)</label>
+                  <button onClick={addRow} className="flex items-center gap-1 text-xs text-brand-600 dark:text-brand-400 hover:underline">
+                    <Plus className="h-3 w-3" /> Add item
+                  </button>
+                </div>
+                <div className="space-y-1.5">
+                  {loadingPlan.map((row, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_80px_120px_28px] gap-1.5 items-center">
+                      <input
+                        type="text"
+                        className="input text-xs"
+                        placeholder="Item name"
+                        value={row.itemName}
+                        onChange={e => updateRow(i, 'itemName', e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        className="input text-xs"
+                        placeholder="Qty"
+                        value={row.qty}
+                        onChange={e => updateRow(i, 'qty', e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        className="input text-xs"
+                        placeholder="Vehicle#"
+                        value={row.vehicleNo}
+                        onChange={e => updateRow(i, 'vehicleNo', e.target.value)}
+                      />
+                      <button
+                        onClick={() => removeRow(i)}
+                        disabled={loadingPlan.length === 1}
+                        className="text-red-400 hover:text-red-600 disabled:opacity-30"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
+          )}
 
-            {/* PO reference */}
-            <div>
-              <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Purchase Order</label>
-              <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{po.purchaseorder_number}</p>
-            </div>
-
-            {/* Custom message */}
+          {/* ─── T6: Adhoc extra field ──────────────────────────────────────────── */}
+          {selectedKey === 'adhoc' && (
             <div>
               <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
-                Custom Message <span className="font-normal normal-case">— optional</span>
+                Message <span className="text-red-500">*</span>
               </label>
               <textarea
                 className="input w-full resize-none"
-                rows={3}
-                maxLength={500}
-                placeholder="Type a custom message..."
-                value={customText}
-                onChange={e => setCustomText(e.target.value)}
+                rows={4}
+                maxLength={1000}
+                placeholder="Type your message here..."
+                value={adhocMessage}
+                onChange={e => setAdhocMessage(e.target.value)}
               />
-              <p className="text-xs text-gray-400 text-right mt-0.5">{customText.length}/500</p>
+              <p className="text-xs text-gray-400 text-right mt-0.5">{adhocMessage.length}/1000</p>
             </div>
+          )}
 
-            {/* Template select */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
-                Select Template
-              </label>
-              <select
-                className="input w-full"
-                value={selectedTemplateId}
-                onChange={e => setSelectedTemplateId(e.target.value)}
-              >
-                <option value="">— Choose a template —</option>
-                {TEMPLATES.map(t => (
-                  <option key={t.id} value={t.id}>{t.label}</option>
-                ))}
-              </select>
-            </div>
+          {error      && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          {successMsg && <p className="text-sm text-green-600 dark:text-green-400 font-medium">{successMsg}</p>}
+        </div>
 
-            {/* Preview */}
-            {preview && (
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
-                  Preview
-                </label>
-                <div className="rounded-lg bg-gray-50 dark:bg-gray-700/60 border border-gray-200 dark:border-gray-600 p-3 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap max-h-40 overflow-y-auto leading-relaxed">
-                  {preview}
-                </div>
-              </div>
-            )}
-
-            {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-            {successMsg && (
-              <p className="text-sm text-green-600 dark:text-green-400 font-medium">{successMsg}</p>
-            )}
-          </div>
-
-          {/* Footer */}
-          <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-100 dark:border-gray-700 shrink-0">
-            <button onClick={onClose} className="btn-outline" disabled={sending}>Cancel</button>
-            <button
-              onClick={handleSendClick}
-              disabled={sending || (!customText.trim() && !selectedTemplateId) || !sellerInfo?.whatsapp_number}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-semibold transition-opacity disabled:opacity-50"
-              style={{ background: '#25D366' }}
-            >
-              <MessageCircle className="h-4 w-4" />
-              Send on WhatsApp
-            </button>
-          </div>
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-100 dark:border-gray-700 shrink-0">
+          <button onClick={onClose} className="btn-outline" disabled={sending}>Cancel</button>
+          <button
+            onClick={handleSend}
+            disabled={sending || !selectedKey || !sellerInfo?.whatsapp_number}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-semibold transition-opacity disabled:opacity-50"
+            style={{ background: '#25D366' }}
+          >
+            <MessageCircle className="h-4 w-4" />
+            {sending ? 'Sending...' : 'Send Notification'}
+          </button>
         </div>
       </div>
-
-      {/* Confirm dialog */}
-      {showConfirm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm p-6">
-            <h3 className="text-base font-bold text-gray-900 dark:text-gray-100 mb-2">Confirm Send</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              Send this message to <strong>{sellerInfo?.name || sellerInfo?.company || po.vendor_name}</strong> on WhatsApp?
-            </p>
-            <div className="flex items-center justify-end gap-3 mt-5">
-              <button onClick={() => setShowConfirm(false)} className="btn-outline" disabled={sending}>Cancel</button>
-              <button
-                onClick={confirmSend}
-                disabled={sending}
-                className="px-4 py-2 rounded-lg text-white text-sm font-semibold disabled:opacity-50 transition-opacity"
-                style={{ background: '#25D366' }}
-              >
-                {sending ? 'Sending...' : 'Yes, Send'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+    </div>
   );
 }
