@@ -156,13 +156,24 @@ router.post('/:id/accept', requireRole('seller_admin', 'operations_user'), async
   // Send WhatsApp post-acceptance action menu (non-blocking)
   if (whatsapp.isConfigured && req.seller.whatsapp_enabled && req.seller.whatsapp_number) {
     const frontendUrl = process.env.FRONTEND_URL || 'https://jodl-seller-portal.onrender.com';
+    const to       = req.seller.whatsapp_number;
+    const poNumber = po.purchaseorder_number || id;
     whatsapp._shortenUrl(`${frontendUrl}/purchase-orders/${id}`)
-      .then(poUrl => whatsapp.sendPostAcceptanceMenu({
-        to:       req.seller.whatsapp_number,
-        poNumber: po.purchaseorder_number || id,
-        poId:     id,
-        poUrl,
-      }))
+      .then(poUrl => {
+        // Post-acceptance action menu (existing)
+        whatsapp.sendPostAcceptanceMenu({ to, poNumber, poId: id, poUrl })
+          .catch(err => console.warn('[WhatsApp] Accept menu failed:', err.message));
+
+        // T2: Material Readiness request (immediate)
+        whatsapp.sendMaterialReadinessRequest({ to, poNumber, poId: id, poUrl })
+          .catch(err => console.warn('[WhatsApp] T2 material readiness failed:', err.message));
+
+        // T4: Update Invoice request (30s delay to avoid message pile-up)
+        setTimeout(() => {
+          whatsapp.sendInvoiceUpdateRequest({ to, poNumber, poId: id, poUrl })
+            .catch(err => console.warn('[WhatsApp] T4 invoice request failed:', err.message));
+        }, 30_000);
+      })
       .catch(err => console.warn('[WhatsApp] Accept menu failed:', err.message));
   }
 

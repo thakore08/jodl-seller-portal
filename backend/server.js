@@ -29,6 +29,7 @@ app.use('/api/invoices',        require('./src/routes/invoices'));
 app.use('/api/payments',        require('./src/routes/payments'));
 app.use('/api/whatsapp',        require('./src/routes/whatsapp'));
 app.use('/api/zoho',            require('./src/routes/zoho'));
+app.use('/api/admin',           require('./src/routes/adminNotifications'));
 
 app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 

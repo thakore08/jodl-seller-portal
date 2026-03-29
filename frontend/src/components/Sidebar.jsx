@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, MessageSquare,
   LogOut, Package, X, ChevronLeft, ChevronRight,
-  FileText, CreditCard, User,
+  FileText, CreditCard, User, Bell,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -21,7 +21,8 @@ function getNavItems(role) {
     { to: '/invoices',        icon: FileText,        label: 'Invoices',        roles: ['seller_admin', 'finance_user'] },
     { to: '/payments',        icon: CreditCard,      label: 'Payments',        roles: ['seller_admin', 'finance_user'] },
     { to: '/profile',         icon: User,            label: 'Profile',         roles: ['seller_admin'] },
-    { to: '/whatsapp',        icon: MessageSquare,   label: 'WhatsApp',        roles: ['seller_admin'] },
+    { to: '/whatsapp',              icon: MessageSquare, label: 'WhatsApp',     roles: ['seller_admin'] },
+    { to: '/admin/notifications',   icon: Bell,          label: 'Notifications', roles: ['seller_admin'] },
   ];
   return all.filter(item => !item.roles || item.roles.includes(role));
 }

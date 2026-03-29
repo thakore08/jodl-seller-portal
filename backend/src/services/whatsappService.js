@@ -176,6 +176,111 @@ class WhatsAppService {
     return result;
   }
 
+  // ─── Template 2: Material Readiness Request ───────────────────────────────
+  /**
+   * Asks seller to update material readiness ETA or mark all items ready.
+   * Auto-triggered when PO is accepted.
+   */
+  async sendMaterialReadinessRequest({ to, poNumber, poId, poUrl }) {
+    const payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: {
+          text: `PO ${poNumber} accepted. Please update material readiness status.`,
+        },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: `t2_eta_${poId}`,   title: 'Update ETA' } },
+            { type: 'reply', reply: { id: `t2_ready_${poId}`, title: 'Mark All Ready' } },
+          ],
+        },
+      },
+    };
+    return this.sendMessage(payload);
+  }
+
+  // ─── Template 3: Shipment Planned Details ─────────────────────────────────
+  /**
+   * Informs seller of shipment plan: vehicle, arrival time, item-wise loading plan.
+   * Manual trigger only (no auto-trigger).
+   */
+  async sendShipmentPlannedDetails({ to, poNumber, poUrl, vehicleNumber, arrivalDatetime, loadingPlan = [] }) {
+    const planLines = loadingPlan.length
+      ? loadingPlan.map(i => `- ${i.itemName} x${i.qty} | Vehicle: ${i.vehicleNo}`).join('\n')
+      : '(no loading plan provided)';
+
+    const body = [
+      `Shipment planned for PO ${poNumber}`,
+      `Vehicle: ${vehicleNumber}`,
+      `Arrival: ${arrivalDatetime}`,
+      '',
+      'Loading Plan:',
+      planLines,
+      '',
+      `View PO: ${poUrl}`,
+    ].join('\n');
+
+    return this.sendTextMessage(to, body);
+  }
+
+  // ─── Template 4: Update Invoice Request ───────────────────────────────────
+  /**
+   * Asks seller to submit their invoice number or upload a PDF.
+   * Auto-triggered 30s after PO acceptance (alongside T2).
+   */
+  async sendInvoiceUpdateRequest({ to, poNumber, poId, poUrl }) {
+    const payload = {
+      messaging_product: 'whatsapp',
+      recipient_type: 'individual',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: {
+          text: `PO ${poNumber} accepted. Please submit your invoice.`,
+        },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: `t4_invoice_${poId}`, title: 'Upload Invoice' } },
+          ],
+        },
+      },
+    };
+    return this.sendMessage(payload);
+  }
+
+  // ─── Template 5: Bill Payout Details ──────────────────────────────────────
+  /**
+   * Informs seller of payment made against bills linked to a PO.
+   * Auto-triggered when bill is marked as paid.
+   */
+  async sendBillPayoutDetails({ to, poNumber, poUrl, bills = [], totalPaid, outstanding }) {
+    const billLines = bills.map(b =>
+      `Bill ${b.billNumber}: INR ${Number(b.amount).toLocaleString('en-IN')} paid on ${b.paymentDate} | Ref: ${b.utrNumber || 'N/A'}`
+    ).join('\n');
+
+    const footerLine = Number(outstanding) > 0
+      ? `Outstanding: INR ${Number(outstanding).toLocaleString('en-IN')}`
+      : 'All bills cleared';
+
+    const body = [
+      `Payment update for PO ${poNumber}`,
+      '',
+      billLines || '(no bill details provided)',
+      '',
+      `Total paid: INR ${Number(totalPaid).toLocaleString('en-IN')}`,
+      footerLine,
+      '',
+      `View PO: ${poUrl}`,
+    ].join('\n');
+
+    return this.sendTextMessage(to, body);
+  }
+
   // ─── Invoice Posted Confirmation ──────────────────────────────────────────
   async sendInvoiceConfirmation({ to, invoiceNumber, poNumber, amount, currency = 'INR' }) {
     const formattedAmount = new Intl.NumberFormat('en-IN', { style: 'currency', currency }).format(amount);
