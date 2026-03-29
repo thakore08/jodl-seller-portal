@@ -17,7 +17,7 @@ const pdfExtractor   = require('../services/pdfExtractorService');
 const invoiceMatcher = require('../services/invoiceMatchingService');
 const { sellers }    = require('../data/sellers');
 const { createWaInvoice, updateWaInvoice } = require('../data/waInvoices');
-const { poLocalStatus } = require('../data/poLocalState');
+const { poLocalStatus, poRTDData } = require('../data/poLocalState');
 const { authenticate } = require('../middleware/authMiddleware');
 
 const router = express.Router();
@@ -79,13 +79,46 @@ router.post('/webhook', async (req, res) => {
 
 // ─── PHASE 2: Interactive button reply ───────────────────────────────────────
 async function handleInteractiveReply(message, seller, phone) {
-  const { action, poId } = message;
-  if (!action || !poId) return;
+  const { action, poId, buttonReplyId } = message;
 
   const session = sessionSvc.getSession(phone);
   const resolvedPoId     = poId     || session?.poId;
   const resolvedPoNumber = session?.poNumber || resolvedPoId;
   const resolvedPoUrl    = session?.poUrl    || '';
+
+  // ── T2: Material Readiness — Update ETA button ──────────────────────────
+  if (buttonReplyId?.startsWith('t2_eta_')) {
+    const realPoId = buttonReplyId.slice('t2_eta_'.length);
+    sessionSvc.updateSession(phone, { state: 'awaiting_eta_date', poId: realPoId });
+    await whatsapp.sendTextMessage(`+${phone}`,
+      'Please reply with the expected date in DD/MM/YYYY format (e.g., 15/04/2025).'
+    ).catch(() => {});
+    return;
+  }
+
+  // ── T2: Material Readiness — Mark All Ready button ───────────────────────
+  if (buttonReplyId?.startsWith('t2_ready_')) {
+    const realPoId = buttonReplyId.slice('t2_ready_'.length);
+    const poNumberForMsg = session?.poNumber || realPoId;
+    await markAllLineItemsReady(realPoId, poNumberForMsg, phone, seller);
+    await whatsapp.sendTextMessage(`+${phone}`,
+      'All items for the PO have been marked as Ready to Dispatch. Thank you!'
+    ).catch(() => {});
+    sessionSvc.clearSession(phone);
+    return;
+  }
+
+  // ── T4: Update Invoice — Upload Invoice button ───────────────────────────
+  if (buttonReplyId?.startsWith('t4_invoice_')) {
+    const realPoId = buttonReplyId.slice('t4_invoice_'.length);
+    sessionSvc.updateSession(phone, { state: 'awaiting_invoice', poId: realPoId });
+    await whatsapp.sendTextMessage(`+${phone}`,
+      'Please send your invoice as a PDF or image in this chat.'
+    ).catch(() => {});
+    return;
+  }
+
+  if (!action || !resolvedPoId) return;
 
   if (action === 'accept') {
     await processPOAccept({ phone, seller, poId: resolvedPoId, poNumber: resolvedPoNumber, session });
@@ -196,6 +229,31 @@ async function handleTextReply(message, seller, phone) {
     await whatsapp.sendTextMessage(`+${phone}`,
       `✅ PO *${selected.purchaseorder_number}* selected.\n\nPlease send your invoice as a *PDF* or *image* in this chat.`
     ).catch(() => {});
+    return;
+  }
+
+  // ── Awaiting ETA date (T2 Material Readiness reply) ─────────────────────
+  if (session.state === 'awaiting_eta_date') {
+    const date = parseDateString(text);
+    if (!date) {
+      await whatsapp.sendTextMessage(`+${phone}`,
+        'Date not recognized. Please reply with the date in DD/MM/YYYY format (e.g., 15/04/2025).'
+      ).catch(() => {});
+      return;
+    }
+    const dateStr = formatDateYMD(date);
+    updateAllLineItemETAs(session.poId, dateStr, phone);
+    await whatsapp.sendTextMessage(`+${phone}`,
+      `ETA updated for all items to ${formatDateDMY(date)}. Thank you!`
+    ).catch(() => {});
+    // Notify admin
+    const adminPhone = process.env.ADMIN_WHATSAPP_NUMBER;
+    if (adminPhone && whatsapp.isConfigured) {
+      await whatsapp.sendTextMessage(adminPhone,
+        `ETA Update\n\nPO: ${session.poNumber || session.poId}\nVendor: ${seller.company || seller.name}\nNew ETA (all items): ${formatDateDMY(date)}`
+      ).catch(() => {});
+    }
+    sessionSvc.clearSession(phone);
     return;
   }
 
@@ -394,6 +452,67 @@ async function handleMediaUpload(message, seller, phone) {
   }
 
   console.log(`[WhatsApp] Invoice received from ${phone}, WA invoice ID: ${waInvoice.id}`);
+}
+
+// ─── Date parsing utilities (for T2 ETA replies) ─────────────────────────────
+function parseDateString(str) {
+  if (!str) return null;
+  const s = str.trim();
+  // DD/MM/YYYY or DD-MM-YYYY
+  const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (dmy) {
+    const d = parseInt(dmy[1], 10), m = parseInt(dmy[2], 10) - 1, y = parseInt(dmy[3], 10);
+    const year = y < 100 ? 2000 + y : y;
+    const date = new Date(year, m, d);
+    return isNaN(date.getTime()) ? null : date;
+  }
+  // Fallback: native Date parsing (handles "15 April 2025", "April 15", etc.)
+  const parsed = new Date(s);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatDateYMD(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function formatDateDMY(date) {
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+// ─── Helper: Mark all line items ready (T2 Mark All Ready) ───────────────────
+async function markAllLineItemsReady(poId, poNumber, phone, seller) {
+  const now = new Date().toISOString();
+  const existing = poRTDData.get(poId) || {};
+  poRTDData.set(poId, { ...existing, _all_ready: true, _ready_at: now, _ready_by_phone: phone });
+
+  const adminPhone = process.env.ADMIN_WHATSAPP_NUMBER;
+  const frontendUrl = process.env.FRONTEND_URL || 'https://jodl-seller-portal.onrender.com';
+  if (adminPhone && whatsapp.isConfigured) {
+    await whatsapp.sendAllItemsReady({
+      to:            adminPhone,
+      poNumber:      poNumber || poId,
+      lineItemCount: 0,
+      sellerName:    seller.company || seller.name,
+      adminPoUrl:    `${frontendUrl}/purchase-orders/${poId}`,
+    }).catch(() => {});
+  }
+  console.log(`[WhatsApp] All items marked ready for poId=${poId} by ${phone}`);
+}
+
+// ─── Helper: Store bulk ETA for all line items (T2 Update ETA) ───────────────
+function updateAllLineItemETAs(poId, dateStr, phone) {
+  const existing = poRTDData.get(poId) || {};
+  poRTDData.set(poId, {
+    ...existing,
+    _bulk_eta:          dateStr,
+    _bulk_eta_set_at:   new Date().toISOString(),
+    _bulk_eta_by_phone: phone,
+  });
+  console.log(`[WhatsApp] Bulk ETA set for poId=${poId}: ${dateStr}`);
 }
 
 // ─── Helper: Process PO Accept ────────────────────────────────────────────────

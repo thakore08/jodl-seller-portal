@@ -13,6 +13,7 @@ import Payments from './pages/Payments';
 import PaymentDetail from './pages/PaymentDetail';
 import Profile from './pages/Profile';
 import WhatsApp from './pages/WhatsApp';
+import AdminNotifications from './pages/AdminNotifications';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 
@@ -93,6 +94,9 @@ export default function App() {
               } />
               <Route path="whatsapp" element={
                 <RoleRoute roles={['seller_admin']}><WhatsApp /></RoleRoute>
+              } />
+              <Route path="admin/notifications" element={
+                <RoleRoute roles={['seller_admin']}><AdminNotifications /></RoleRoute>
               } />
             </Route>
 
