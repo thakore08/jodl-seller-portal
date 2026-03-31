@@ -12,8 +12,8 @@ const {
   poActivityLog,
 } = require('../data/poLocalState');
 
-// Only notify POs dated within this window (guards against re-spam after deploy)
-const NOTIFY_WINDOW_MS = (parseInt(process.env.PO_NOTIFY_WINDOW_DAYS || '7', 10)) * 24 * 60 * 60 * 1000;
+// No time window — any unnotified 'issued' PO is always notified.
+// Re-spam on deploy is prevented by notifiedPoIds (persisted to disk).
 
 const router = express.Router();
 
@@ -65,18 +65,16 @@ router.get('/', async (req, res) => {
       .map(mergeLocalStatus);
     data.purchaseorders = filtered.slice(0, Number(per_page));
 
-    // Auto-trigger WhatsApp notification for newly-seen issued/open POs
+    // Auto-trigger WhatsApp notification for newly-seen issued POs
     if (!whatsapp.isConfigured) {
       console.warn('[AutoNotify] WhatsApp not configured — skipping PO notifications');
     } else {
-      const now = Date.now();
       const newPOs = filtered.filter(po => {
         // Only notify 'issued' POs — 'open' means already accepted, no action needed
         if (po.status !== 'issued') return false;
+        // Skip if already notified (persisted across restarts)
         if (notifiedPoIds.has(po.purchaseorder_id)) return false;
-        // Time guard: skip POs older than NOTIFY_WINDOW_MS (prevents re-spam after deploy)
-        const poDate = po.date ? new Date(po.date).getTime() : now;
-        return (now - poDate) <= NOTIFY_WINDOW_MS;
+        return true;
       });
       console.log(`[AutoNotify] Checking ${filtered.length} POs — ${newPOs.length} new to notify`);
       newPOs.forEach(po => {
