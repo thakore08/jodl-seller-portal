@@ -13,7 +13,7 @@ const {
 } = require('../data/poLocalState');
 
 // Only notify POs dated within this window (guards against re-spam after deploy)
-const NOTIFY_WINDOW_MS = (parseInt(process.env.PO_NOTIFY_WINDOW_DAYS || '3', 10)) * 24 * 60 * 60 * 1000;
+const NOTIFY_WINDOW_MS = (parseInt(process.env.PO_NOTIFY_WINDOW_DAYS || '7', 10)) * 24 * 60 * 60 * 1000;
 
 const router = express.Router();
 

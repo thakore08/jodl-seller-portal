@@ -127,4 +127,51 @@ router.post('/bill-paid', authenticate, requireAdmin, async (req, res) => {
   });
 });
 
+// ─── POST /api/admin/notify-po ───────────────────────────────────────────────
+// Force-send T1 PO Issued notification for a specific PO number.
+// Bypasses the time guard and notifiedPoIds check — use when auto-notify missed.
+//
+// Body:
+//   poNumber  - Human-readable PO number, e.g. "PO0326-01798"
+router.post('/notify-po', authenticate, requireAdmin, async (req, res) => {
+  const { poNumber } = req.body;
+  if (!poNumber) return res.status(400).json({ error: true, message: 'poNumber is required' });
+
+  // Search Zoho for the PO by number
+  let po;
+  try {
+    const data = await zoho.request('GET', '/purchaseorders', null, {
+      purchaseorder_number: poNumber,
+    });
+    po = (data.purchaseorders || [])[0];
+  } catch (err) {
+    return res.status(502).json({ error: true, message: `Zoho lookup failed: ${err.message}` });
+  }
+
+  if (!po) {
+    return res.status(404).json({ error: true, message: `PO not found: ${poNumber}` });
+  }
+
+  // Force-send notification (bypasses notifiedPoIds + time guard)
+  const whatsapp = require('../services/whatsappService');
+  const result = await whatsapp.triggerPONotification(po);
+
+  console.log(`[AdminNotif] Force-notify: poNumber=${poNumber} poId=${po.purchaseorder_id} result=${JSON.stringify(result)} adminEmail=${req.seller.email}`);
+
+  if (!result.sent) {
+    return res.status(422).json({ error: true, message: `Notification not sent: ${result.reason}` });
+  }
+
+  // Also mark as notified so auto-notify won't double-fire
+  const { addNotifiedPoId } = require('../data/poLocalState');
+  addNotifiedPoId(po.purchaseorder_id);
+
+  res.json({
+    success:   true,
+    poNumber:  po.purchaseorder_number,
+    poId:      po.purchaseorder_id,
+    sentTo:    po.vendor_name,
+  });
+});
+
 module.exports = router;
