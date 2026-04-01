@@ -1,8 +1,11 @@
 const express  = require('express');
+const fs       = require('fs');
+const path     = require('path');
 const zoho     = require('../services/zohoBooksService');
 const whatsapp = require('../services/whatsappService');
 const { sellers } = require('../data/sellers');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
+const poAttachments = require('../data/poAttachments');
 const {
   poLocalStatus,
   notifiedPoIds,
@@ -40,6 +43,7 @@ function mergeLocalStatus(po) {
   if (id && poLineDeliveryDates.has(id)) result.line_delivery_dates = poLineDeliveryDates.get(id);
   if (id && poRTDData.has(id))           result.rtd_data          = poRTDData.get(id);
   if (id && poActivityLog.has(id))       result.activity_log      = poActivityLog.get(id);
+  result.attachments = poAttachments.getAttachments(id);
   return result;
 }
 
@@ -458,6 +462,28 @@ router.post('/:id/notify', async (req, res) => {
   });
 
   res.json({ success: true, whatsapp: result });
+});
+
+// ─── GET /api/purchase-orders/:id/attachments/bill ───────────────────────────
+// Serve the purchase bill PDF inline (no auth — links are non-guessable UUIDs).
+router.get('/:id/attachments/bill', (req, res) => {
+  const att = poAttachments.getAttachments(req.params.id).bill;
+  if (!att) return res.status(404).json({ error: true, message: 'No bill attachment' });
+  const fp = path.resolve(process.env.UPLOAD_DIR || './uploads', att.filename);
+  if (!fs.existsSync(fp)) return res.status(404).json({ error: true, message: 'File not found on disk' });
+  res.setHeader('Content-Disposition', `inline; filename="${att.originalName || att.filename}"`);
+  res.sendFile(fp);
+});
+
+// ─── GET /api/purchase-orders/:id/attachments/invoice ────────────────────────
+// Serve the Zoho invoice PDF inline.
+router.get('/:id/attachments/invoice', (req, res) => {
+  const att = poAttachments.getAttachments(req.params.id).invoice;
+  if (!att) return res.status(404).json({ error: true, message: 'No invoice attachment' });
+  const fp = path.resolve(process.env.UPLOAD_DIR || './uploads', att.filename);
+  if (!fs.existsSync(fp)) return res.status(404).json({ error: true, message: 'File not found on disk' });
+  res.setHeader('Content-Disposition', `inline; filename="${att.invoiceNumber || att.filename}.pdf"`);
+  res.sendFile(fp);
 });
 
 module.exports = router;

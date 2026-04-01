@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle, FileText,
-  Calendar, Package,
+  Calendar, Package, Hash,
   MapPin, User as UserIcon, ClipboardList, Sparkles,
 } from 'lucide-react';
 import { format } from 'date-fns';
@@ -15,6 +15,7 @@ import RTDLineItemsPanel from '../components/RTDLineItemsPanel';
 import ActivityLogDrawer from '../components/ActivityLogDrawer';
 import { useAuth } from '../context/AuthContext';
 import WhatsAppMessageModal from '../components/WhatsAppMessageModal';
+import AttachmentsSection from '../components/AttachmentsSection';
 
 // ─── Helper: format Zoho address object (or plain string) ────────────────────
 function formatAddress(addr) {
@@ -504,6 +505,17 @@ export default function PODetail() {
               </p>
             </div>
           </div>
+          {po.reference_number !== undefined && (
+            <div className="flex items-center gap-2 text-sm">
+              <Hash className="h-4 w-4 text-gray-400 dark:text-gray-500 shrink-0" />
+              <div>
+                <p className="text-xs text-gray-400 dark:text-gray-500">Reference#</p>
+                <p className="font-medium text-gray-900 dark:text-gray-100">
+                  {po.reference_number || '—'}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Buyer / Delivery address */}
@@ -627,6 +639,9 @@ export default function PODetail() {
           </div>
         </div>
       )}
+
+      {/* ── Attachments ──────────────────────────────────────────────────────── */}
+      <AttachmentsSection po={po} />
 
       {/* ── Modals ───────────────────────────────────────────────────────────── */}
 

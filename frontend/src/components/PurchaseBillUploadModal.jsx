@@ -87,6 +87,7 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
   const [lineItems, setLineItems] = useState([makeEmptyLineItem()]);
   const [error, setError] = useState('');
   const [submitError, setSubmitError] = useState('');
+  const [submitWarning, setSubmitWarning] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -98,6 +99,7 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
     setLineItems([makeEmptyLineItem()]);
     setError('');
     setSubmitError('');
+    setSubmitWarning('');
   }, [open]);
 
   useEffect(() => {
@@ -213,10 +215,18 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
 
     try {
       setPhase('SUBMITTING');
-      await api.post('/invoices', formData, {
+      const { data } = await api.post('/invoices', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      onSuccess();
+      if (data.warning) {
+        // Bill was posted successfully but auto-invoice failed — show warning banner
+        // and auto-close after 5s so the user has time to read it.
+        setSubmitWarning(data.warning);
+        setPhase('FORM');
+        setTimeout(() => onSuccess(), 5000);
+      } else {
+        onSuccess();
+      }
     } catch (err) {
       setSubmitError(err.response?.data?.message || 'Failed to submit purchase bill.');
       setPhase('FORM');
@@ -441,6 +451,13 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
               </pre>
             </details>
 
+            {submitWarning && (
+              <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+                <p className="font-semibold mb-0.5">✓ Purchase bill submitted successfully</p>
+                <p>{submitWarning}</p>
+                <p className="mt-1 text-amber-600 dark:text-amber-400">Closing automatically…</p>
+              </div>
+            )}
             {submitError && (
               <div className="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
                 {submitError}

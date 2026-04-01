@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw, Search, Filter, Sparkles } from 'lucide-react';
+import { RefreshCw, Search, Filter, Sparkles, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
 import api from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import WhatsAppMessageModal from '../components/WhatsAppMessageModal';
@@ -49,6 +49,8 @@ export default function PurchaseOrders() {
   const [error,        setError]        = useState('');
   const [activeFilter, setActiveFilter] = useState(STATUS_FILTERS[0]);
   const [search,       setSearch]       = useState('');
+  const [sortKey,      setSortKey]      = useState(null);
+  const [sortDir,      setSortDir]      = useState('asc');
 
   // WhatsApp modal state (admin only)
   const [waModalPo,    setWaModalPo]    = useState(null);   // PO currently open in modal
@@ -97,6 +99,32 @@ export default function PurchaseOrders() {
     );
   });
 
+  // Client-side sort (currently only Reference# is sortable)
+  const sorted = useMemo(() => {
+    if (!sortKey) return filtered;
+    return [...filtered].sort((a, b) => {
+      const av = (a[sortKey] || '').toString().toLowerCase();
+      const bv = (b[sortKey] || '').toString().toLowerCase();
+      return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+  }, [filtered, sortKey, sortDir]);
+
+  // Sort icon helper
+  const SortIcon = ({ col }) => sortKey === col
+    ? (sortDir === 'asc'
+        ? <ChevronUp   className="h-3 w-3 inline ml-0.5" />
+        : <ChevronDown className="h-3 w-3 inline ml-0.5" />)
+    : <ChevronsUpDown className="h-3 w-3 inline ml-0.5 opacity-30" />;
+
+  const handleSortRef = () => {
+    if (sortKey === 'reference_number') {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey('reference_number');
+      setSortDir('asc');
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="page-hero">
@@ -121,7 +149,7 @@ export default function PurchaseOrders() {
         <div>
           <h1 className="text-base font-bold text-gray-900 dark:text-gray-100">Purchase Orders</h1>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {!loading && `${filtered.length} order${filtered.length !== 1 ? 's' : ''}`}
+            {!loading && `${sorted.length} order${sorted.length !== 1 ? 's' : ''}`}
           </p>
         </div>
         <button onClick={loadPOs} disabled={loading} className="btn-outline shimmer-on-hover">
@@ -174,7 +202,7 @@ export default function PurchaseOrders() {
         <div className="flex justify-center py-12">
           <div className="h-7 w-7 animate-spin rounded-full border-4 border-brand-600 border-t-transparent" />
         </div>
-      ) : filtered.length === 0 ? (
+      ) : sorted.length === 0 ? (
         <div className="card py-14 text-center text-sm text-gray-400 dark:text-gray-500">
           {search ? 'No POs match your search.' : 'No purchase orders found.'}
         </div>
@@ -182,10 +210,15 @@ export default function PurchaseOrders() {
         <>
           {/* Mobile cards — visible below md */}
           <ul className="space-y-3 md:hidden motion-stagger">
-            {filtered.map(po => (
+            {sorted.map(po => (
               <li key={po.purchaseorder_id} className="card glow-hover p-4">
                 <div className="flex items-start justify-between gap-2 mb-2">
-                  <p className="text-sm font-bold text-brand-600 dark:text-brand-400">{po.purchaseorder_number}</p>
+                  <div>
+                    <p className="text-sm font-bold text-brand-600 dark:text-brand-400">{po.purchaseorder_number}</p>
+                    {po.reference_number && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500">{po.reference_number}</p>
+                    )}
+                  </div>
                   <StatusBadge status={getEffectiveStatus(po)} />
                 </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-3">
@@ -225,6 +258,13 @@ export default function PurchaseOrders() {
                 <thead className="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700">
                   <tr>
                     <th className="table-th">PO Number</th>
+                    <th
+                      className="table-th cursor-pointer select-none hidden lg:table-cell"
+                      onClick={handleSortRef}
+                      title="Sort by Reference#"
+                    >
+                      Reference# <SortIcon col="reference_number" />
+                    </th>
                     <th className="table-th">Date</th>
                     <th className="table-th hidden lg:table-cell">Expected Delivery</th>
                     <th className="table-th hidden lg:table-cell">Vendor</th>
@@ -234,9 +274,12 @@ export default function PurchaseOrders() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
-                  {filtered.map(po => (
+                  {sorted.map(po => (
                     <tr key={po.purchaseorder_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors">
                       <td className="table-td font-medium text-brand-600 dark:text-brand-400">{po.purchaseorder_number}</td>
+                      <td className="table-td text-gray-500 dark:text-gray-400 hidden lg:table-cell">
+                        {po.reference_number || '—'}
+                      </td>
                       <td className="table-td whitespace-nowrap">{po.date ? format(new Date(po.date), 'dd MMM yyyy') : '—'}</td>
                       <td className="table-td whitespace-nowrap hidden lg:table-cell">
                         {po.expected_delivery_date ? format(new Date(po.expected_delivery_date), 'dd MMM yyyy') : '—'}
