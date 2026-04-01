@@ -225,6 +225,49 @@ class ZohoBooksService {
     });
   }
 
+  // ─── Sales Orders ─────────────────────────────────────────────────────────────
+  /**
+   * Look up a Sales Order by its human-readable SO number (e.g. "SO-00123").
+   * Returns: { salesorders: [...] }
+   */
+  async getSalesOrderByNumber(soNumber) {
+    return this.request('GET', '/salesorders', null, { salesorder_number: soNumber });
+  }
+
+  // ─── Invoices (Customer Invoices) ────────────────────────────────────────────
+  async createInvoice(invoiceData) {
+    return this.request('POST', '/invoices', invoiceData);
+  }
+
+  async submitInvoice(invoiceId) {
+    return this.request('POST', `/invoices/${invoiceId}/submit`);
+  }
+
+  async approveInvoice(invoiceId) {
+    return this.request('POST', `/invoices/${invoiceId}/approve`);
+  }
+
+  async markInvoiceSent(invoiceId) {
+    return this.request('POST', `/invoices/${invoiceId}/status/sent`);
+  }
+
+  /**
+   * Fetch the PDF bytes for a Zoho Books invoice.
+   * Returns a Buffer containing the raw PDF data.
+   */
+  async getInvoicePdf(invoiceId) {
+    const token = await this.getAccessToken();
+    const response = await axios.get(
+      `${this.apiBase}/invoices/${invoiceId}`,
+      {
+        headers: { Authorization: `Zoho-oauthtoken ${token}` },
+        params:  { organization_id: this.orgId, accept: 'pdf' },
+        responseType: 'arraybuffer',
+      }
+    );
+    return Buffer.from(response.data);
+  }
+
   // ─── Dashboard Stats ─────────────────────────────────────────────────────────
   async getPOStats(vendorId) {
     const [open, billed, cancelled] = await Promise.allSettled([

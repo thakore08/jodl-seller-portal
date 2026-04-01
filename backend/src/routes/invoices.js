@@ -1,12 +1,14 @@
 const express  = require('express');
 const multer   = require('multer');
 const path     = require('path');
+const fs       = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const zoho           = require('../services/zohoBooksService');
 const whatsapp       = require('../services/whatsappService');
 const sessionSvc     = require('../services/whatsappSessionService');
 const pdfExtractor   = require('../services/pdfExtractorService');
 const invoiceMatcher = require('../services/invoiceMatchingService');
+const poAttachments  = require('../data/poAttachments');
 const { getWaInvoice, updateWaInvoice, listWaInvoices } = require('../data/waInvoices');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
 
@@ -350,11 +352,78 @@ router.post('/', upload.single('file'), async (req, res) => {
     }).catch(err => console.warn('[WhatsApp] Invoice confirmation failed:', err.message));
   }
 
+  // ─── Save bill attachment (so PO detail can show a download link) ─────────────
+  if (req.file) {
+    poAttachments.setBillAttachment(purchaseorder_id, {
+      filename:     req.file.filename,
+      originalName: req.file.originalname,
+      size:         req.file.size,
+      uploadedAt:   new Date().toISOString(),
+    });
+  }
+
+  // ─── Auto-post Zoho invoice against linked Sales Order ────────────────────────
+  // Non-blocking: on failure, a warning is returned but the 201 still goes out.
+  let invoiceWarning = null;
+  const refNumber = po.reference_number;
+  if (refNumber) {
+    try {
+      // 1. Find the SO by its number
+      const soData = await zoho.getSalesOrderByNumber(refNumber);
+      const so = (soData.salesorders || [])[0];
+      if (!so) throw new Error(`SO ${refNumber} not found in Zoho`);
+
+      // 2. Build invoice payload (customer + price from SO, qty/items from bill)
+      const invoicePayload = {
+        customer_id:         so.customer_id,
+        salesorders:         [{ salesorder_id: so.salesorder_id }],
+        date:                billPayload.date,
+        payment_terms:       so.payment_terms,
+        payment_terms_label: so.payment_terms_label,
+        line_items:          billPayload.line_items.map(bi => {
+          const soItem = (so.line_items || []).find(s => s.item_id === bi.item_id);
+          return {
+            item_id:  bi.item_id,
+            name:     bi.name,
+            quantity: bi.quantity,
+            rate:     soItem ? soItem.rate : bi.rate,
+          };
+        }),
+        custom_fields: result.bill?.custom_fields || [],
+        notes:         billPayload.notes,
+      };
+
+      // 3. Create → submit → approve → sent
+      const invResult = await zoho.createInvoice(invoicePayload);
+      const inv = invResult.invoice;
+      await zoho.submitInvoice(inv.invoice_id);
+      await zoho.approveInvoice(inv.invoice_id);
+      await zoho.markInvoiceSent(inv.invoice_id);
+
+      // 4. Fetch PDF and persist locally
+      const pdfBuf  = await zoho.getInvoicePdf(inv.invoice_id);
+      const pdfName = `zoho_inv_${inv.invoice_id}.pdf`;
+      fs.writeFileSync(path.join(process.env.UPLOAD_DIR || './uploads', pdfName), pdfBuf);
+      poAttachments.setInvoiceAttachment(purchaseorder_id, {
+        filename:      pdfName,
+        invoiceId:     inv.invoice_id,
+        invoiceNumber: inv.invoice_number,
+        size:          pdfBuf.length,
+        createdAt:     new Date().toISOString(),
+      });
+      console.log(`[AutoInvoice] Created ${inv.invoice_number} for PO ${purchaseorder_id} (SO ${refNumber})`);
+    } catch (err) {
+      invoiceWarning = `Purchase bill posted. Invoice creation against SO ${refNumber} failed — please create manually.`;
+      console.error(`[AutoInvoice] FAILED poId=${purchaseorder_id} so=${refNumber}:`, err.message);
+    }
+  }
+
   res.status(201).json({
     success: true,
     message: 'Invoice posted to Zoho Books successfully',
     bill: result.bill,
     file: req.file ? { filename: req.file.filename, size: req.file.size } : null,
+    warning: invoiceWarning,
   });
 });
 
