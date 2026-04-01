@@ -384,6 +384,35 @@ function extractHeader(text) {
     { re: /payment\s*due[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})/i,                        confidence: 'medium' },
   ]);
 
+  // GSTINs (first = seller, second = buyer)
+  // Some IRP-generated PDFs insert spaces within the GSTIN; allow optional spaces and strip them.
+  const GSTIN_RE_SPACED = /\b([0-9]{2}\s*[A-Z]{5}\s*[0-9]{4}\s*[A-Z][1-9A-Z]Z[0-9A-Z])\b/g;
+  const gstins = [];
+  let gm;
+  const gstReCopy = new RegExp(GSTIN_RE_SPACED.source, 'g');
+  while ((gm = gstReCopy.exec(t)) !== null) {
+    const clean = gm[1].replace(/\s+/g, '');
+    if (!gstins.includes(clean)) gstins.push(clean);
+    if (gstins.length === 2) break;
+  }
+  const sellerGstin = gstins[0] || null;
+  const buyerGstin  = gstins[1] || null;
+
+  // Company names near GSTINs — walk backwards from each "GSTIN/UIN" label
+  const firstGstinLabelIdx  = t.search(/GSTIN\/UIN\s*[:\s]/i);
+  const secondGstinLabelIdx = (() => {
+    if (firstGstinLabelIdx < 0) return -1;
+    const after  = t.slice(firstGstinLabelIdx + 10);
+    const second = after.search(/GSTIN\/UIN\s*[:\s]/i);
+    return second < 0 ? -1 : firstGstinLabelIdx + 10 + second;
+  })();
+  const sellerNameNearGstin = firstGstinLabelIdx >= 0
+    ? extractCompanyNearGstin(t, firstGstinLabelIdx)?.value
+    : null;
+  const buyerNameNearGstin = secondGstinLabelIdx >= 0
+    ? extractCompanyNearGstin(t, secondGstinLabelIdx)?.value
+    : null;
+
   const sellerGstinField = { value: sellerGstin,
                              confidence: sellerGstin ? 'high' : 'low' };
   const buyerGstinField  = { value: buyerGstin,
