@@ -341,6 +341,20 @@ router.post('/', upload.single('file'), async (req, res) => {
       .catch(err => console.warn('[Invoice] Failed to set PO custom field:', err.message));
   }
 
+  // ─── Submit bill so it moves from draft → open ────────────────────────────────
+  // Fire-and-forget: if submission fails (e.g. approval workflow blocks it)
+  // the bill stays in draft but the 201 still goes out.
+  if (createdBillId) {
+    zoho.submitBill(createdBillId)
+      .then(() => {
+        // If the org has a Bill Approval workflow, submitting puts it in
+        // "pending_approval". Try to approve it too, non-blocking.
+        zoho.approveBill(createdBillId)
+          .catch(err => console.warn('[Invoice] Bill approve skipped (workflow not configured?):', err.message));
+      })
+      .catch(err => console.warn('[Invoice] Bill submit failed:', err.message));
+  }
+
   // Send WhatsApp confirmation (non-blocking)
   if (whatsapp.isConfigured && req.seller.whatsapp_enabled && req.seller.whatsapp_number) {
     whatsapp.sendInvoiceConfirmation({
@@ -366,41 +380,45 @@ router.post('/', upload.single('file'), async (req, res) => {
   // Non-blocking: on failure, a warning is returned but the 201 still goes out.
   let invoiceWarning = null;
   const refNumber = po.reference_number;
-  if (refNumber) {
+  if (!refNumber) {
+    console.log(`[AutoInvoice] Skipped — PO ${purchaseorder_id} has no reference_number (no linked SO)`);
+  } else {
     try {
       // 1. Find the SO by its number
       const soData = await zoho.getSalesOrderByNumber(refNumber);
       const so = (soData.salesorders || [])[0];
-      if (!so) throw new Error(`SO ${refNumber} not found in Zoho`);
+      if (!so) throw new Error(`SO ${refNumber} not found in Zoho Books`);
 
-      // 2. Build invoice payload (customer + price from SO, qty/items from bill)
+      // 2. Build invoice payload — reference SO so Zoho copies line items & pricing
       const invoicePayload = {
         customer_id:         so.customer_id,
         salesorders:         [{ salesorder_id: so.salesorder_id }],
         date:                billPayload.date,
         payment_terms:       so.payment_terms,
         payment_terms_label: so.payment_terms_label,
-        line_items:          billPayload.line_items.map(bi => {
-          const soItem = (so.line_items || []).find(s => s.item_id === bi.item_id);
-          return {
-            item_id:  bi.item_id,
-            name:     bi.name,
-            quantity: bi.quantity,
-            rate:     soItem ? soItem.rate : bi.rate,
-          };
-        }),
-        custom_fields: result.bill?.custom_fields || [],
-        notes:         billPayload.notes,
+        notes:               billPayload.notes,
       };
 
-      // 3. Create → submit → approve → sent
+      // 3. Create invoice (draft)
       const invResult = await zoho.createInvoice(invoicePayload);
       const inv = invResult.invoice;
+      if (!inv?.invoice_id) throw new Error('createInvoice returned no invoice object');
+
+      // 4. Submit invoice (draft → open / pending_approval)
       await zoho.submitInvoice(inv.invoice_id);
-      await zoho.approveInvoice(inv.invoice_id);
+
+      // 5. Approve — optional: some orgs require manual approval;
+      //    if it fails we continue (invoice stays in open/pending_approval)
+      try {
+        await zoho.approveInvoice(inv.invoice_id);
+      } catch (approveErr) {
+        console.warn(`[AutoInvoice] approveInvoice skipped for ${inv.invoice_id}:`, approveErr.message);
+      }
+
+      // 6. Mark as sent
       await zoho.markInvoiceSent(inv.invoice_id);
 
-      // 4. Fetch PDF and persist locally
+      // 7. Fetch PDF and persist locally
       const pdfBuf  = await zoho.getInvoicePdf(inv.invoice_id);
       const pdfName = `zoho_inv_${inv.invoice_id}.pdf`;
       fs.writeFileSync(path.join(process.env.UPLOAD_DIR || './uploads', pdfName), pdfBuf);
@@ -413,7 +431,7 @@ router.post('/', upload.single('file'), async (req, res) => {
       });
       console.log(`[AutoInvoice] Created ${inv.invoice_number} for PO ${purchaseorder_id} (SO ${refNumber})`);
     } catch (err) {
-      invoiceWarning = `Purchase bill posted. Invoice creation against SO ${refNumber} failed — please create manually.`;
+      invoiceWarning = `Purchase bill posted. Invoice creation against SO ${refNumber} failed — please create manually. (${err.message})`;
       console.error(`[AutoInvoice] FAILED poId=${purchaseorder_id} so=${refNumber}:`, err.message);
     }
   }

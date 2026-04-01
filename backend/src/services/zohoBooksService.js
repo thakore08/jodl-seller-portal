@@ -176,6 +176,16 @@ class ZohoBooksService {
     return this.request('POST', '/bills', billData);
   }
 
+  /** Submit a draft bill for approval (moves draft → open when no approval workflow). */
+  async submitBill(billId) {
+    return this.request('POST', `/bills/${billId}/submit`);
+  }
+
+  /** Approve a submitted bill (moves pending_approval → open). */
+  async approveBill(billId) {
+    return this.request('POST', `/bills/${billId}/approve`);
+  }
+
   async getBills(filters = {}) {
     return this.request('GET', '/bills', null, filters);
   }
