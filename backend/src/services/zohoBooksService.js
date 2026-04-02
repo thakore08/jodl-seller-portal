@@ -238,10 +238,18 @@ class ZohoBooksService {
   // ─── Sales Orders ─────────────────────────────────────────────────────────────
   /**
    * Look up a Sales Order by its human-readable SO number (e.g. "SO-00123").
-   * Returns: { salesorders: [...] }
+   * Returns: { salesorders: [...] }  ← summary list, may lack full line_items
    */
   async getSalesOrderByNumber(soNumber) {
     return this.request('GET', '/salesorders', null, { salesorder_number: soNumber });
+  }
+
+  /**
+   * Fetch full Sales Order details by internal ID (includes complete line_items).
+   * Returns: { salesorder: { salesorder_id, customer_id, line_items: [...], ... } }
+   */
+  async getSalesOrderById(soId) {
+    return this.request('GET', `/salesorders/${soId}`);
   }
 
   // ─── Invoices (Customer Invoices) ────────────────────────────────────────────

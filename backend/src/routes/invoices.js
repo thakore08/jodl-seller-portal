@@ -384,41 +384,70 @@ router.post('/', upload.single('file'), async (req, res) => {
     console.log(`[AutoInvoice] Skipped — PO ${purchaseorder_id} has no reference_number (no linked SO)`);
   } else {
     try {
-      // 1. Find the SO by its number
-      const soData = await zoho.getSalesOrderByNumber(refNumber);
-      const so = (soData.salesorders || [])[0];
-      if (!so) throw new Error(`SO ${refNumber} not found in Zoho Books`);
+      // 1. Find SO summary by number (list result — may lack line_items)
+      const soListData = await zoho.getSalesOrderByNumber(refNumber);
+      const soSummary  = (soListData.salesorders || [])[0];
+      if (!soSummary) throw new Error(`SO ${refNumber} not found in Zoho Books`);
 
-      // 2. Build invoice payload — reference SO so Zoho copies line items & pricing
+      // 2. Fetch full SO to get complete line_items (detail endpoint)
+      const soFullData = await zoho.getSalesOrderById(soSummary.salesorder_id);
+      const so         = soFullData.salesorder;
+      if (!so) throw new Error(`Could not fetch details for SO ${soSummary.salesorder_id}`);
+
+      console.log(`[AutoInvoice] SO ${so.salesorder_number} (${so.salesorder_id}), customer ${so.customer_id}, ${(so.line_items || []).length} line items`);
+
+      // 3. Build qty lookup from bill (item_id → quantity from the uploaded bill)
+      const billQtyMap = new Map(
+        (billPayload.line_items || [])
+          .filter(b => b.item_id)
+          .map(b => [b.item_id, b.quantity])
+      );
+
+      // 4. Build invoice line items: SO item_id / name / rate  +  bill quantity by SKU
+      const invoiceLineItems = (so.line_items || []).map(soLi => ({
+        item_id:   soLi.item_id,
+        name:      soLi.name,
+        quantity:  billQtyMap.get(soLi.item_id) ?? soLi.quantity,
+        rate:      soLi.rate,
+        unit:      soLi.unit,
+        ...(soLi.account_id && { account_id: soLi.account_id }),
+      }));
+
+      if (invoiceLineItems.length === 0) {
+        throw new Error(`SO ${refNumber} has no line items — cannot create invoice`);
+      }
+
       const invoicePayload = {
         customer_id:         so.customer_id,
         salesorders:         [{ salesorder_id: so.salesorder_id }],
         date:                billPayload.date,
         payment_terms:       so.payment_terms,
         payment_terms_label: so.payment_terms_label,
+        line_items:          invoiceLineItems,
         notes:               billPayload.notes,
       };
 
-      // 3. Create invoice (draft)
+      console.log(`[AutoInvoice] invoicePayload →`, JSON.stringify(invoicePayload, null, 2));
+
+      // 5. Create invoice (draft)
       const invResult = await zoho.createInvoice(invoicePayload);
       const inv = invResult.invoice;
       if (!inv?.invoice_id) throw new Error('createInvoice returned no invoice object');
 
-      // 4. Submit invoice (draft → open / pending_approval)
+      // 6. Submit invoice (draft → open / pending_approval)
       await zoho.submitInvoice(inv.invoice_id);
 
-      // 5. Approve — optional: some orgs require manual approval;
-      //    if it fails we continue (invoice stays in open/pending_approval)
+      // 7. Approve — optional; skip gracefully if org has no approval workflow
       try {
         await zoho.approveInvoice(inv.invoice_id);
       } catch (approveErr) {
         console.warn(`[AutoInvoice] approveInvoice skipped for ${inv.invoice_id}:`, approveErr.message);
       }
 
-      // 6. Mark as sent
+      // 8. Mark as sent
       await zoho.markInvoiceSent(inv.invoice_id);
 
-      // 7. Fetch PDF and persist locally
+      // 9. Fetch PDF and persist locally
       const pdfBuf  = await zoho.getInvoicePdf(inv.invoice_id);
       const pdfName = `zoho_inv_${inv.invoice_id}.pdf`;
       fs.writeFileSync(path.join(process.env.UPLOAD_DIR || './uploads', pdfName), pdfBuf);
@@ -429,7 +458,7 @@ router.post('/', upload.single('file'), async (req, res) => {
         size:          pdfBuf.length,
         createdAt:     new Date().toISOString(),
       });
-      console.log(`[AutoInvoice] Created ${inv.invoice_number} for PO ${purchaseorder_id} (SO ${refNumber})`);
+      console.log(`[AutoInvoice] ✓ Created ${inv.invoice_number} for PO ${purchaseorder_id} (SO ${refNumber})`);
     } catch (err) {
       invoiceWarning = `Purchase bill posted. Invoice creation against SO ${refNumber} failed — please create manually. (${err.message})`;
       console.error(`[AutoInvoice] FAILED poId=${purchaseorder_id} so=${refNumber}:`, err.message);
