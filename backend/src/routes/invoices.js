@@ -417,8 +417,10 @@ router.post('/', upload.single('file'), async (req, res) => {
         throw new Error(`SO ${refNumber} has no line items — cannot create invoice`);
       }
 
-      // Custom fields to copy from SO → Invoice (all others left blank / NA per mapping)
-      const SO_CF_TO_COPY = new Set([
+      // ── Custom fields ────────────────────────────────────────────────────────
+      // "Derive from SO" — use SO value; fall back to 'NA' if the SO instance
+      //   doesn't carry that field (keeps mandatory fields populated).
+      const SO_CF_LABELS = [
         'JOPL Sales Order Reference',
         'Expected Delivery Date',
         'Biz Segment',
@@ -430,11 +432,33 @@ router.post('/', upload.single('file'), async (req, res) => {
         'Credit Instrument',
         'Credit limit reference id',
         'Credit Type',
-      ]);
+      ];
 
-      const invoiceCustomFields = (so.custom_fields || [])
-        .filter(cf => SO_CF_TO_COPY.has(cf.label))
-        .map(cf => ({ label: cf.label, value: cf.value }));
+      // "NA" fields — always post 'NA' (no value available / not applicable)
+      const NA_CF_LABELS = [
+        'Source Seller Id',
+        'Freight value',
+        'Remarks',
+        'ERP Response',
+        'Advance percentage',
+        'Bill vs Ship Add Matched?',
+        'Priority',
+        'Shipment Linked',
+        'SO Sync ERP Response',
+        'LC Usance Response',
+      ];
+
+      // Build label → value lookup from the full SO custom_fields array
+      const soCfMap = new Map(
+        (so.custom_fields || []).map(cf => [cf.label, cf.value])
+      );
+
+      const invoiceCustomFields = [
+        // SO-derived: SO value or 'NA' fallback
+        ...SO_CF_LABELS.map(label => ({ label, value: soCfMap.get(label) ?? 'NA' })),
+        // NA fields: always 'NA'
+        ...NA_CF_LABELS.map(label => ({ label, value: 'NA' })),
+      ];
 
       const invoicePayload = {
         customer_id:         so.customer_id,
@@ -444,7 +468,7 @@ router.post('/', upload.single('file'), async (req, res) => {
         payment_terms_label: so.payment_terms_label,
         line_items:          invoiceLineItems,
         notes:               billPayload.notes,
-        ...(invoiceCustomFields.length > 0 && { custom_fields: invoiceCustomFields }),
+        custom_fields:       invoiceCustomFields,
       };
 
       console.log(`[AutoInvoice] invoicePayload →`, JSON.stringify(invoicePayload, null, 2));
