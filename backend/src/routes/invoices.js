@@ -417,6 +417,25 @@ router.post('/', upload.single('file'), async (req, res) => {
         throw new Error(`SO ${refNumber} has no line items — cannot create invoice`);
       }
 
+      // Custom fields to copy from SO → Invoice (all others left blank / NA per mapping)
+      const SO_CF_TO_COPY = new Set([
+        'JOPL Sales Order Reference',
+        'Expected Delivery Date',
+        'Biz Segment',
+        'E-Commerce',
+        'Payment mode',
+        'Incoming Payment',
+        'Supply Source',
+        'Delivery Method',
+        'Credit Instrument',
+        'Credit limit reference id',
+        'Credit Type',
+      ]);
+
+      const invoiceCustomFields = (so.custom_fields || [])
+        .filter(cf => SO_CF_TO_COPY.has(cf.label))
+        .map(cf => ({ label: cf.label, value: cf.value }));
+
       const invoicePayload = {
         customer_id:         so.customer_id,
         salesorders:         [{ salesorder_id: so.salesorder_id }],
@@ -425,6 +444,7 @@ router.post('/', upload.single('file'), async (req, res) => {
         payment_terms_label: so.payment_terms_label,
         line_items:          invoiceLineItems,
         notes:               billPayload.notes,
+        ...(invoiceCustomFields.length > 0 && { custom_fields: invoiceCustomFields }),
       };
 
       console.log(`[AutoInvoice] invoicePayload →`, JSON.stringify(invoicePayload, null, 2));
