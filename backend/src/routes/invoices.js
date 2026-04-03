@@ -384,14 +384,17 @@ router.post('/', upload.single('file'), async (req, res) => {
     ...(safeDate(due_date) && { due_date: safeDate(due_date) }),
     bill_number:       bill_number || '',
     purchaseorder_ids: [purchaseorder_id],
-    line_items:        parsedLineItems || po.line_items?.map(item => ({
+    line_items:        (parsedLineItems || po.line_items?.map(item => ({
       item_id:     item.item_id,
       name:        item.name,
       description: item.description,
       rate:        item.rate,
       quantity:    item.quantity,
       account_id:  item.account_id,
-    })) || [],
+    })) || []).map(item => ({
+      ...item,
+      batch_details: [{ batch_number: item.batch_number || 'NA', quantity: item.quantity }],
+    })),
     notes,
     // Tax lines (IGST, CGST, SGST) mapped to Zoho's taxes structure
     ...(parsedTaxLines.length > 0 && {
@@ -462,6 +465,7 @@ router.post('/', upload.single('file'), async (req, res) => {
           quantity:        li.quantity,
           rate:            li.rate,
           unit:            li.unit,
+          invoice_item_batch_details: [{ batch_number: li.batch_number || 'NA', quantity: li.quantity }],
           ...(soLi.account_id              && { account_id:              soLi.account_id }),
           ...(soLi.tax_id                  && { tax_id:                  soLi.tax_id }),
           ...(soLi.tax_exemption_id        && { tax_exemption_id:        soLi.tax_exemption_id }),
@@ -471,18 +475,22 @@ router.post('/', upload.single('file'), async (req, res) => {
     } else {
       invoiceLineItems = (Array.isArray(so.line_items) ? so.line_items : [])
         .filter(soLi => billQtyMap.has(soLi.item_id) && billQtyMap.get(soLi.item_id) > 0)
-        .map(soLi => ({
-          so_line_item_id: soLi.line_item_id,   // links to SO line item — inherits tax config
-          item_id:         soLi.item_id,
-          name:            soLi.name,
-          quantity:        billQtyMap.get(soLi.item_id),  // always use bill qty, never SO qty
-          rate:            soLi.rate,
-          unit:            soLi.unit,
-          ...(soLi.account_id              && { account_id:              soLi.account_id }),
-          ...(soLi.tax_id                  && { tax_id:                  soLi.tax_id }),
-          ...(soLi.tax_exemption_id        && { tax_exemption_id:        soLi.tax_exemption_id }),
-          ...(soLi.is_reverse_charge_taxable != null && { is_reverse_charge_taxable: soLi.is_reverse_charge_taxable }),
-        }));
+        .map(soLi => {
+          const qty = billQtyMap.get(soLi.item_id);
+          return {
+            so_line_item_id: soLi.line_item_id,   // links to SO line item — inherits tax config
+            item_id:         soLi.item_id,
+            name:            soLi.name,
+            quantity:        qty,  // always use bill qty, never SO qty
+            rate:            soLi.rate,
+            unit:            soLi.unit,
+            invoice_item_batch_details: [{ batch_number: 'NA', quantity: qty }],
+            ...(soLi.account_id              && { account_id:              soLi.account_id }),
+            ...(soLi.tax_id                  && { tax_id:                  soLi.tax_id }),
+            ...(soLi.tax_exemption_id        && { tax_exemption_id:        soLi.tax_exemption_id }),
+            ...(soLi.is_reverse_charge_taxable != null && { is_reverse_charge_taxable: soLi.is_reverse_charge_taxable }),
+          };
+        });
     }
 
     if (invoiceLineItems.length === 0) {
