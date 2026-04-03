@@ -74,10 +74,16 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
     'Credit Instrument', 'Delivery Method',
   ];
   const FIXED_CFS_PREVIEW = [
-    { label: 'Purchase Bill Reference No', value: 'NA' },  // bill_number not known yet at extract time
-    { label: 'Ewaybill_TransportMode',     value: 'Road' },
-    { label: 'Ewaybill_Distance',          value: '0' },
-    { label: 'Ewaybill_Vehicle Number',    value: 'NA' },
+    { label: 'Purchase Bill Reference No',                value: 'NA' },  // bill_number not known yet at extract time
+    { label: 'Ewaybill_TransportMode',                    value: 'Road' },
+    { label: 'Ewaybill_Distance',                         value: '0' },
+    { label: 'Ewaybill_Vehicle Number',                   value: 'NA' },
+    { label: 'Shipment Reference Updated',                value: 'true' },
+    { label: 'Purchase Bill Verified',                    value: 'true' },
+    { label: 'Shipment Linked',                           value: 'true' },
+    { label: 'Batch Check',                               value: 'true' },
+    { label: 'Invoice_DO_total_quantity_validated',        value: 'true' },
+    { label: 'Invoice_DO_item_level_qty_validated',        value: 'true' },
   ];
 
   let invoice_preview = null;
@@ -415,10 +421,16 @@ router.post('/', upload.single('file'), async (req, res) => {
     'Credit Instrument', 'Delivery Method',
   ];
   const FIXED_CFS = [
-    { label: 'Purchase Bill Reference No', value: bill_number || 'NA' },
-    { label: 'Ewaybill_TransportMode',     value: 'Road' },
-    { label: 'Ewaybill_Distance',          value: '0' },
-    { label: 'Ewaybill_Vehicle Number',    value: 'NA' },
+    { label: 'Purchase Bill Reference No',                value: bill_number || 'NA' },
+    { label: 'Ewaybill_TransportMode',                    value: 'Road' },
+    { label: 'Ewaybill_Distance',                         value: '0' },
+    { label: 'Ewaybill_Vehicle Number',                   value: 'NA' },
+    { label: 'Shipment Reference Updated',                value: 'true' },
+    { label: 'Purchase Bill Verified',                    value: 'true' },
+    { label: 'Shipment Linked',                           value: 'true' },
+    { label: 'Batch Check',                               value: 'true' },
+    { label: 'Invoice_DO_total_quantity_validated',        value: 'true' },
+    { label: 'Invoice_DO_item_level_qty_validated',        value: 'true' },
   ];
 
   // ─── Build invoice payload BEFORE creating the bill ──────────────────────────
