@@ -67,6 +67,57 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
     console.warn('[InvoiceExtract] PO fetch failed, continuing without match:', err.message);
   }
 
+  // If PO has a linked SO, build invoice payload preview (read-only — no Zoho writes)
+  const SO_CF_LABELS_PREVIEW = [
+    'JOPL Sales Order Reference', 'Expected Delivery Date', 'Biz Segment',
+    'E-Commerce', 'Payment mode', 'Incoming Payment', 'Supply Source',
+    'Delivery Method', 'Credit Instrument', 'Credit limit reference id', 'Credit Type',
+  ];
+  const NA_CF_LABELS_PREVIEW = [
+    'Source Seller Id', 'Freight value', 'Remarks', 'ERP Response',
+    'Advance percentage', 'Bill vs Ship Add Matched?', 'Priority',
+    'Shipment Linked', 'SO Sync ERP Response', 'LC Usance Response',
+  ];
+
+  let invoice_preview = null;
+  if (po?.reference_number) {
+    try {
+      const soListData = await zoho.getSalesOrderByNumber(po.reference_number);
+      const soSummary  = (soListData.salesorders || [])[0];
+      if (soSummary) {
+        const [soFullData, invCfDefs] = await Promise.all([
+          zoho.getSalesOrderById(soSummary.salesorder_id),
+          zoho.getCustomFieldsByModule('invoices'),
+        ]);
+        const so         = soFullData.salesorder;
+        const invCfLabels = new Set(invCfDefs.map(cf => cf.label));
+        if (so) {
+          const soCfMap = new Map((so.custom_fields || []).map(cf => [cf.label, cf.value]));
+          const custom_fields = [
+            ...SO_CF_LABELS_PREVIEW.filter(l => invCfLabels.has(l)).map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
+            ...NA_CF_LABELS_PREVIEW.filter(l => invCfLabels.has(l)).map(l => ({ label: l, value: 'NA' })),
+          ];
+          invoice_preview = {
+            customer_id:         so.customer_id,
+            customer_name:       so.customer_name,
+            salesorder_number:   so.salesorder_number,
+            payment_terms_label: so.payment_terms_label,
+            line_items: (so.line_items || []).map(li => ({
+              name:    li.name,
+              item_id: li.item_id,
+              rate:    li.rate,
+              unit:    li.unit,
+            })),
+            custom_fields,
+          };
+          console.log(`[Extract] invoice_preview built for SO ${so.salesorder_number} (${custom_fields.length} custom fields)`);
+        }
+      }
+    } catch (err) {
+      console.warn('[Extract] invoice_preview skipped:', err.message);
+    }
+  }
+
   // Extract text and parse fields from the PDF buffer
   const extraction = await pdfExtractor.extractFromBuffer(req.file.buffer, req.file.originalname);
 
@@ -83,6 +134,7 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
       line_items:      [],
       match_results:   [],
       extraction_log:  extraction.extraction_log,
+      invoice_preview,
     });
   }
 
@@ -105,6 +157,7 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
     match_results:  matchResults,
     extraction_log: extraction.extraction_log,
     raw_text:       extraction.raw_text,   // always include for client-side debugging
+    invoice_preview,
   });
 });
 
@@ -331,31 +384,110 @@ router.post('/', upload.single('file'), async (req, res) => {
     ...(req.file && { attachment_name: req.file.filename }),
   };
 
+  // ── Custom field label lists (reused for SO→Invoice mapping) ────────────────
+  const SO_CF_LABELS = [
+    'JOPL Sales Order Reference', 'Expected Delivery Date', 'Biz Segment',
+    'E-Commerce', 'Payment mode', 'Incoming Payment', 'Supply Source',
+    'Delivery Method', 'Credit Instrument', 'Credit limit reference id', 'Credit Type',
+  ];
+  const NA_CF_LABELS = [
+    'Source Seller Id', 'Freight value', 'Remarks', 'ERP Response',
+    'Advance percentage', 'Bill vs Ship Add Matched?', 'Priority',
+    'Shipment Linked', 'SO Sync ERP Response', 'LC Usance Response',
+  ];
+
+  // ─── Build invoice payload BEFORE creating the bill ──────────────────────────
+  // This way, if the SO lookup fails we return an error without creating any
+  // Zoho documents — the user can fix the issue and retry cleanly.
+  const refNumber = po.reference_number;
+  let invoicePayload = null;
+
+  if (refNumber) {
+    // 1. SO lookup
+    const soListData = await zoho.getSalesOrderByNumber(refNumber);
+    const soSummary  = (soListData.salesorders || [])[0];
+    if (!soSummary) {
+      return res.status(422).json({ error: true, message: `Sales Order "${refNumber}" not found in Zoho Books. Please verify the PO reference number and try again.` });
+    }
+
+    // 2. Fetch full SO + invoice custom field definitions in parallel
+    const [soFullData, invCfDefs] = await Promise.all([
+      zoho.getSalesOrderById(soSummary.salesorder_id),
+      zoho.getCustomFieldsByModule('invoices'),
+    ]);
+    const so = soFullData.salesorder;
+    if (!so) {
+      return res.status(422).json({ error: true, message: `Could not load Sales Order details for SO ${soSummary.salesorder_id}` });
+    }
+
+    console.log(`[AutoInvoice] SO ${so.salesorder_number} (${so.salesorder_id}), customer ${so.customer_id}, ${(so.line_items || []).length} line items`);
+
+    // 3. Build qty lookup from bill line items (item_id → quantity)
+    const billQtyMap = new Map(
+      (billPayload.line_items || [])
+        .filter(b => b.item_id)
+        .map(b => [b.item_id, b.quantity])
+    );
+
+    // 4. Map SO line items with bill quantities by SKU
+    const invoiceLineItems = (so.line_items || []).map(soLi => ({
+      item_id:   soLi.item_id,
+      name:      soLi.name,
+      quantity:  billQtyMap.get(soLi.item_id) ?? soLi.quantity,
+      rate:      soLi.rate,
+      unit:      soLi.unit,
+      ...(soLi.account_id && { account_id: soLi.account_id }),
+    }));
+
+    if (invoiceLineItems.length === 0) {
+      return res.status(422).json({ error: true, message: `SO "${refNumber}" has no line items — cannot create invoice` });
+    }
+
+    // 5. Build custom fields — only those that exist on the Invoice module in Zoho
+    const invCfLabels = new Set(invCfDefs.map(cf => cf.label));
+    const soCfMap     = new Map((so.custom_fields || []).map(cf => [cf.label, cf.value]));
+
+    const invoiceCustomFields = [
+      ...SO_CF_LABELS.filter(l => invCfLabels.has(l)).map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
+      ...NA_CF_LABELS.filter(l => invCfLabels.has(l)).map(l => ({ label: l, value: 'NA' })),
+    ];
+
+    invoicePayload = {
+      customer_id:         so.customer_id,
+      salesorders:         [{ salesorder_id: so.salesorder_id }],
+      date:                billPayload.date,
+      payment_terms:       so.payment_terms,
+      payment_terms_label: so.payment_terms_label,
+      line_items:          invoiceLineItems,
+      notes:               billPayload.notes,
+      custom_fields:       invoiceCustomFields,
+    };
+
+    console.log('[AutoInvoice] invoicePayload →', JSON.stringify(invoicePayload, null, 2));
+  } else {
+    console.log(`[AutoInvoice] Skipped — PO ${purchaseorder_id} has no reference_number (no linked SO)`);
+  }
+
+  // ─── Create bill ─────────────────────────────────────────────────────────────
   console.log('[Invoice] billPayload →', JSON.stringify(billPayload, null, 2));
   const result = await zoho.createBill(billPayload);
   const createdBillId = result.bill?.bill_id;
 
-  // Store PO reference as custom field on the created bill (fire-and-forget)
+  // fire-and-forget: store PO reference as custom field on the bill
   if (createdBillId && purchaseorder_id) {
     zoho.updateBillCustomField(createdBillId, purchaseorder_id)
       .catch(err => console.warn('[Invoice] Failed to set PO custom field:', err.message));
   }
 
-  // ─── Submit bill so it moves from draft → open ────────────────────────────────
-  // Fire-and-forget: if submission fails (e.g. approval workflow blocks it)
-  // the bill stays in draft but the 201 still goes out.
+  // fire-and-forget: submit bill (draft → open) and optionally approve
   if (createdBillId) {
     zoho.submitBill(createdBillId)
-      .then(() => {
-        // If the org has a Bill Approval workflow, submitting puts it in
-        // "pending_approval". Try to approve it too, non-blocking.
-        zoho.approveBill(createdBillId)
-          .catch(err => console.warn('[Invoice] Bill approve skipped (workflow not configured?):', err.message));
-      })
+      .then(() => zoho.approveBill(createdBillId)
+        .catch(err => console.warn('[Invoice] Bill approve skipped (no approval workflow?):', err.message)))
       .catch(err => console.warn('[Invoice] Bill submit failed:', err.message));
   }
 
-  // Send WhatsApp confirmation (non-blocking)
+  // fire-and-forget: WhatsApp confirmation
   if (whatsapp.isConfigured && req.seller.whatsapp_enabled && req.seller.whatsapp_number) {
     whatsapp.sendInvoiceConfirmation({
       to:            req.seller.whatsapp_number,
@@ -366,7 +498,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     }).catch(err => console.warn('[WhatsApp] Invoice confirmation failed:', err.message));
   }
 
-  // ─── Save bill attachment (so PO detail can show a download link) ─────────────
+  // save bill attachment (for PO detail download link)
   if (req.file) {
     poAttachments.setBillAttachment(purchaseorder_id, {
       filename:     req.file.filename,
@@ -376,122 +508,30 @@ router.post('/', upload.single('file'), async (req, res) => {
     });
   }
 
-  // ─── Auto-post Zoho invoice against linked Sales Order ────────────────────────
-  // Non-blocking: on failure, a warning is returned but the 201 still goes out.
-  let invoiceWarning = null;
-  const refNumber = po.reference_number;
-  if (!refNumber) {
-    console.log(`[AutoInvoice] Skipped — PO ${purchaseorder_id} has no reference_number (no linked SO)`);
-  } else {
+  // ─── Create invoice (atomic — rollback bill on failure) ──────────────────────
+  if (invoicePayload) {
+    let createdInvId = null;
     try {
-      // 1. Find SO summary by number (list result — may lack line_items)
-      const soListData = await zoho.getSalesOrderByNumber(refNumber);
-      const soSummary  = (soListData.salesorders || [])[0];
-      if (!soSummary) throw new Error(`SO ${refNumber} not found in Zoho Books`);
-
-      // 2. Fetch full SO to get complete line_items (detail endpoint)
-      const soFullData = await zoho.getSalesOrderById(soSummary.salesorder_id);
-      const so         = soFullData.salesorder;
-      if (!so) throw new Error(`Could not fetch details for SO ${soSummary.salesorder_id}`);
-
-      console.log(`[AutoInvoice] SO ${so.salesorder_number} (${so.salesorder_id}), customer ${so.customer_id}, ${(so.line_items || []).length} line items`);
-
-      // 3. Build qty lookup from bill (item_id → quantity from the uploaded bill)
-      const billQtyMap = new Map(
-        (billPayload.line_items || [])
-          .filter(b => b.item_id)
-          .map(b => [b.item_id, b.quantity])
-      );
-
-      // 4. Build invoice line items: SO item_id / name / rate  +  bill quantity by SKU
-      const invoiceLineItems = (so.line_items || []).map(soLi => ({
-        item_id:   soLi.item_id,
-        name:      soLi.name,
-        quantity:  billQtyMap.get(soLi.item_id) ?? soLi.quantity,
-        rate:      soLi.rate,
-        unit:      soLi.unit,
-        ...(soLi.account_id && { account_id: soLi.account_id }),
-      }));
-
-      if (invoiceLineItems.length === 0) {
-        throw new Error(`SO ${refNumber} has no line items — cannot create invoice`);
-      }
-
-      // ── Custom fields ────────────────────────────────────────────────────────
-      // "Derive from SO" — use SO value; fall back to 'NA' if the SO instance
-      //   doesn't carry that field (keeps mandatory fields populated).
-      const SO_CF_LABELS = [
-        'JOPL Sales Order Reference',
-        'Expected Delivery Date',
-        'Biz Segment',
-        'E-Commerce',
-        'Payment mode',
-        'Incoming Payment',
-        'Supply Source',
-        'Delivery Method',
-        'Credit Instrument',
-        'Credit limit reference id',
-        'Credit Type',
-      ];
-
-      // "NA" fields — always post 'NA' (no value available / not applicable)
-      const NA_CF_LABELS = [
-        'Source Seller Id',
-        'Freight value',
-        'Remarks',
-        'ERP Response',
-        'Advance percentage',
-        'Bill vs Ship Add Matched?',
-        'Priority',
-        'Shipment Linked',
-        'SO Sync ERP Response',
-        'LC Usance Response',
-      ];
-
-      // Build label → value lookup from the full SO custom_fields array
-      const soCfMap = new Map(
-        (so.custom_fields || []).map(cf => [cf.label, cf.value])
-      );
-
-      const invoiceCustomFields = [
-        // SO-derived: SO value or 'NA' fallback
-        ...SO_CF_LABELS.map(label => ({ label, value: soCfMap.get(label) ?? 'NA' })),
-        // NA fields: always 'NA'
-        ...NA_CF_LABELS.map(label => ({ label, value: 'NA' })),
-      ];
-
-      const invoicePayload = {
-        customer_id:         so.customer_id,
-        salesorders:         [{ salesorder_id: so.salesorder_id }],
-        date:                billPayload.date,
-        payment_terms:       so.payment_terms,
-        payment_terms_label: so.payment_terms_label,
-        line_items:          invoiceLineItems,
-        notes:               billPayload.notes,
-        custom_fields:       invoiceCustomFields,
-      };
-
-      console.log(`[AutoInvoice] invoicePayload →`, JSON.stringify(invoicePayload, null, 2));
-
-      // 5. Create invoice (draft)
+      // Create invoice (draft)
       const invResult = await zoho.createInvoice(invoicePayload);
       const inv = invResult.invoice;
       if (!inv?.invoice_id) throw new Error('createInvoice returned no invoice object');
+      createdInvId = inv.invoice_id;
 
-      // 6. Submit invoice (draft → open / pending_approval)
+      // Submit (draft → open / pending_approval)
       await zoho.submitInvoice(inv.invoice_id);
 
-      // 7. Approve — optional; skip gracefully if org has no approval workflow
+      // Approve — optional; skip if org has no approval workflow
       try {
         await zoho.approveInvoice(inv.invoice_id);
       } catch (approveErr) {
         console.warn(`[AutoInvoice] approveInvoice skipped for ${inv.invoice_id}:`, approveErr.message);
       }
 
-      // 8. Mark as sent
+      // Mark as sent
       await zoho.markInvoiceSent(inv.invoice_id);
 
-      // 9. Fetch PDF and persist locally
+      // Fetch PDF and persist
       const pdfBuf  = await zoho.getInvoicePdf(inv.invoice_id);
       const pdfName = `zoho_inv_${inv.invoice_id}.pdf`;
       fs.writeFileSync(path.join(process.env.UPLOAD_DIR || './uploads', pdfName), pdfBuf);
@@ -504,17 +544,24 @@ router.post('/', upload.single('file'), async (req, res) => {
       });
       console.log(`[AutoInvoice] ✓ Created ${inv.invoice_number} for PO ${purchaseorder_id} (SO ${refNumber})`);
     } catch (err) {
-      invoiceWarning = `Purchase bill posted. Invoice creation against SO ${refNumber} failed — please create manually. (${err.message})`;
       console.error(`[AutoInvoice] FAILED poId=${purchaseorder_id} so=${refNumber}:`, err.message);
+      // Rollback: delete the bill so the user can retry without a duplicate
+      if (createdBillId) {
+        zoho.deleteBill(createdBillId)
+          .catch(delErr => console.warn('[AutoInvoice] Bill rollback (delete) failed:', delErr.message));
+      }
+      return res.status(422).json({
+        error:   true,
+        message: `Invoice could not be created against SO "${refNumber}": ${err.message}. The purchase bill has been rolled back — please fix the issue and try again.`,
+      });
     }
   }
 
   res.status(201).json({
     success: true,
     message: 'Invoice posted to Zoho Books successfully',
-    bill: result.bill,
-    file: req.file ? { filename: req.file.filename, size: req.file.size } : null,
-    warning: invoiceWarning,
+    bill:    result.bill,
+    file:    req.file ? { filename: req.file.filename, size: req.file.size } : null,
   });
 });
 

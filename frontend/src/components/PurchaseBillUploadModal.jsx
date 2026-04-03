@@ -87,7 +87,7 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
   const [lineItems, setLineItems] = useState([makeEmptyLineItem()]);
   const [error, setError] = useState('');
   const [submitError, setSubmitError] = useState('');
-  const [submitWarning, setSubmitWarning] = useState('');
+  const [invoicePreview, setInvoicePreview] = useState(null);
 
   useEffect(() => {
     if (!open) return;
@@ -99,7 +99,7 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
     setLineItems([makeEmptyLineItem()]);
     setError('');
     setSubmitError('');
-    setSubmitWarning('');
+    setInvoicePreview(null);
   }, [open]);
 
   useEffect(() => {
@@ -131,6 +131,7 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
       setExtractResult(data);
       setHeader(mapHeaderFromExtract(data.header));
       setLineItems(mapLineItemsFromExtract(data.line_items, po?.line_items || []));
+      setInvoicePreview(data.invoice_preview || null);
       setPhase('FORM');
     } catch (err) {
       setError(err.response?.data?.message || 'OCR extraction failed. Please fill details manually.');
@@ -218,15 +219,7 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
       const { data } = await api.post('/invoices', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      if (data.warning) {
-        // Bill was posted successfully but auto-invoice failed — show warning banner
-        // and auto-close after 5s so the user has time to read it.
-        setSubmitWarning(data.warning);
-        setPhase('FORM');
-        setTimeout(() => onSuccess(), 5000);
-      } else {
-        onSuccess();
-      }
+      onSuccess();
     } catch (err) {
       setSubmitError(err.response?.data?.message || 'Failed to submit purchase bill.');
       setPhase('FORM');
@@ -451,13 +444,62 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
               </pre>
             </details>
 
-            {submitWarning && (
-              <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-                <p className="font-semibold mb-0.5">✓ Purchase bill submitted successfully</p>
-                <p>{submitWarning}</p>
-                <p className="mt-1 text-amber-600 dark:text-amber-400">Closing automatically…</p>
-              </div>
+            {invoicePreview && (
+              <details className="mb-4 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20" open>
+                <summary className="cursor-pointer px-4 py-2 text-sm font-semibold text-blue-700 dark:text-blue-300">
+                  Auto-Invoice Preview — {invoicePreview.salesorder_number}
+                </summary>
+                <div className="px-4 pb-4 pt-1 space-y-3 text-sm">
+                  <p className="text-gray-700 dark:text-gray-300">
+                    <span className="font-medium">Customer:</span> {invoicePreview.customer_name}
+                    {invoicePreview.payment_terms_label && (
+                      <span className="ml-3 text-gray-500 dark:text-gray-400">· Terms: {invoicePreview.payment_terms_label}</span>
+                    )}
+                  </p>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-blue-100 dark:bg-blue-800/40">
+                          <th className="text-left px-2 py-1 font-medium">Item</th>
+                          <th className="text-right px-2 py-1 font-medium">Rate</th>
+                          <th className="text-right px-2 py-1 font-medium">Unit</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {invoicePreview.line_items.map((li, i) => (
+                          <tr key={i} className="border-t border-blue-100 dark:border-blue-800/30">
+                            <td className="px-2 py-1">{li.name}</td>
+                            <td className="text-right px-2 py-1">₹{li.rate}</td>
+                            <td className="text-right px-2 py-1 text-gray-500">{li.unit || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 italic">
+                      Quantities will be taken from the bill line items at submit time.
+                    </p>
+                  </div>
+
+                  {invoicePreview.custom_fields?.length > 0 && (
+                    <details className="text-xs">
+                      <summary className="cursor-pointer text-gray-500 dark:text-gray-400">
+                        Custom fields ({invoicePreview.custom_fields.length})
+                      </summary>
+                      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-0.5">
+                        {invoicePreview.custom_fields.map(cf => (
+                          <div key={cf.label} className="flex justify-between gap-2 py-0.5 border-b border-blue-100 dark:border-blue-800/30">
+                            <span className="text-gray-500 dark:text-gray-400 truncate">{cf.label}</span>
+                            <span className="font-medium text-gray-800 dark:text-gray-200 shrink-0">{cf.value ?? '—'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              </details>
             )}
+
             {submitError && (
               <div className="mb-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
                 {submitError}

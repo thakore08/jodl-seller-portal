@@ -235,6 +235,21 @@ class ZohoBooksService {
     });
   }
 
+  /** Delete a bill by ID (used for rollback when invoice creation fails after bill was created). */
+  async deleteBill(billId) {
+    return this.request('DELETE', `/bills/${billId}`);
+  }
+
+  /**
+   * Fetch custom field definitions for a Zoho Books module.
+   * module: 'invoices' | 'salesorders' | 'bills' | etc.
+   * Returns: array of { customfield_id, label, api_name, data_type, ... }
+   */
+  async getCustomFieldsByModule(module) {
+    const data = await this.request('GET', '/settings/customfields', null, { module });
+    return (data.customfields || []);
+  }
+
   // ─── Sales Orders ─────────────────────────────────────────────────────────────
   /**
    * Look up a Sales Order by its human-readable SO number (e.g. "SO-00123").
