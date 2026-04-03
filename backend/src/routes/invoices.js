@@ -435,6 +435,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     }
 
     console.log(`[AutoInvoice] SO ${so.salesorder_number} (${so.salesorder_id}), customer ${so.customer_id}, ${(so.line_items || []).length} line items`);
+    if (so.line_items?.[0]) console.log('[AutoInvoice] first SO line item (tax fields):', JSON.stringify(so.line_items[0], null, 2));
 
     // 3. Build qty lookup from bill line items (item_id → quantity)
     const billQtyMap = new Map(
@@ -445,11 +446,12 @@ router.post('/', upload.single('file'), async (req, res) => {
 
     // 4. Map SO line items with bill quantities by SKU
     const invoiceLineItems = (Array.isArray(so.line_items) ? so.line_items : []).map(soLi => ({
-      item_id:   soLi.item_id,
-      name:      soLi.name,
-      quantity:  billQtyMap.get(soLi.item_id) ?? soLi.quantity,
-      rate:      soLi.rate,
-      unit:      soLi.unit,
+      so_line_item_id: soLi.line_item_id,   // links to SO line item — inherits tax config
+      item_id:         soLi.item_id,
+      name:            soLi.name,
+      quantity:        billQtyMap.get(soLi.item_id) ?? soLi.quantity,
+      rate:            soLi.rate,
+      unit:            soLi.unit,
       ...(soLi.account_id              && { account_id:              soLi.account_id }),
       ...(soLi.tax_id                  && { tax_id:                  soLi.tax_id }),
       ...(soLi.tax_exemption_id        && { tax_exemption_id:        soLi.tax_exemption_id }),
