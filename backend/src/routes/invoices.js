@@ -69,14 +69,24 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
 
   // If PO has a linked SO, build invoice payload preview (read-only — no Zoho writes)
   const SO_CF_LABELS_PREVIEW = [
-    'JOPL Sales Order Reference', 'Expected Delivery Date', 'Biz Segment',
-    'E-Commerce', 'Payment mode', 'Incoming Payment', 'Supply Source',
-    'Delivery Method', 'Credit Instrument', 'Credit limit reference id', 'Credit Type',
+    'JOPL Sales Order Reference', 'Seller Order Number', 'Biz Segment',
+    'Supply Source', 'Incoming Payment', 'E-Commerce', 'Payment mode',
+    'Credit Instrument', 'Delivery Method',
+  ];
+  const FIXED_CFS_PREVIEW = [
+    { label: 'Purchase Bill Reference No', value: 'NA' },
+    { label: 'Ewaybill_TransportMode',     value: 'Road' },
+    { label: 'Ewaybill_Distance',          value: '0' },
+    { label: 'Ewaybill_Vehicle Type',      value: 'Road' },
   ];
   const NA_CF_LABELS_PREVIEW = [
-    'Source Seller Id', 'Freight value', 'Remarks', 'ERP Response',
-    'Advance percentage', 'Bill vs Ship Add Matched?', 'Priority',
-    'Shipment Linked', 'SO Sync ERP Response', 'LC Usance Response',
+    'Shipment reference#', 'Destination', 'Ewaybill_Vehicle Number', 'Motor vehicle no',
+    'PO number', 'PO date', 'LC details 1', 'Dispatch through',
+    'Bill of lading / LR-RR No', 'Ewaybill_TransporterID', 'Ewaybill_Transporter name',
+    'Other References', 'Shipping Bill No', 'Shipping Bill Date', 'Port Code',
+    'Dispatch Doc No', 'Ewaybill_Transport Document Number', 'Claiming Refund',
+    'Ewaybill_Transport Document Date', 'Additional Currency Code', 'Export duty',
+    'Einvoice_PDF_File', 'Ewaybill_Mode of transport',
   ];
 
   let invoice_preview = null;
@@ -85,17 +95,14 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
       const soListData = await zoho.getSalesOrderByNumber(po.reference_number);
       const soSummary  = (soListData.salesorders || [])[0];
       if (soSummary) {
-        const [soFullData, invCfDefs] = await Promise.all([
-          zoho.getSalesOrderById(soSummary.salesorder_id),
-          zoho.getCustomFieldsByModule('invoices'),
-        ]);
+        const soFullData = await zoho.getSalesOrderById(soSummary.salesorder_id);
         const so         = soFullData.salesorder;
-        const invCfLabels = new Set(invCfDefs.map(cf => cf.label));
         if (so) {
           const soCfMap = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.label, cf.value]));
           const custom_fields = [
-            ...SO_CF_LABELS_PREVIEW.filter(l => invCfLabels.has(l)).map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
-            ...NA_CF_LABELS_PREVIEW.filter(l => invCfLabels.has(l)).map(l => ({ label: l, value: 'NA' })),
+            ...SO_CF_LABELS_PREVIEW.map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
+            ...FIXED_CFS_PREVIEW,
+            ...NA_CF_LABELS_PREVIEW.map(l => ({ label: l, value: 'NA' })),
           ];
           invoice_preview = {
             customer_id:         so.customer_id,
@@ -384,16 +391,26 @@ router.post('/', upload.single('file'), async (req, res) => {
     ...(req.file && { attachment_name: req.file.filename }),
   };
 
-  // ── Custom field label lists (reused for SO→Invoice mapping) ────────────────
+  // ── Custom field label lists (SO→Invoice mapping) ────────────────────────────
   const SO_CF_LABELS = [
-    'JOPL Sales Order Reference', 'Expected Delivery Date', 'Biz Segment',
-    'E-Commerce', 'Payment mode', 'Incoming Payment', 'Supply Source',
-    'Delivery Method', 'Credit Instrument', 'Credit limit reference id', 'Credit Type',
+    'JOPL Sales Order Reference', 'Seller Order Number', 'Biz Segment',
+    'Supply Source', 'Incoming Payment', 'E-Commerce', 'Payment mode',
+    'Credit Instrument', 'Delivery Method',
+  ];
+  const FIXED_CFS = [
+    { label: 'Purchase Bill Reference No', value: bill_number || 'NA' },
+    { label: 'Ewaybill_TransportMode',     value: 'Road' },
+    { label: 'Ewaybill_Distance',          value: '0' },
+    { label: 'Ewaybill_Vehicle Type',      value: 'Road' },
   ];
   const NA_CF_LABELS = [
-    'Source Seller Id', 'Freight value', 'Remarks', 'ERP Response',
-    'Advance percentage', 'Bill vs Ship Add Matched?', 'Priority',
-    'Shipment Linked', 'SO Sync ERP Response', 'LC Usance Response',
+    'Shipment reference#', 'Destination', 'Ewaybill_Vehicle Number', 'Motor vehicle no',
+    'PO number', 'PO date', 'LC details 1', 'Dispatch through',
+    'Bill of lading / LR-RR No', 'Ewaybill_TransporterID', 'Ewaybill_Transporter name',
+    'Other References', 'Shipping Bill No', 'Shipping Bill Date', 'Port Code',
+    'Dispatch Doc No', 'Ewaybill_Transport Document Number', 'Claiming Refund',
+    'Ewaybill_Transport Document Date', 'Additional Currency Code', 'Export duty',
+    'Einvoice_PDF_File', 'Ewaybill_Mode of transport',
   ];
 
   // ─── Build invoice payload BEFORE creating the bill ──────────────────────────
@@ -410,11 +427,8 @@ router.post('/', upload.single('file'), async (req, res) => {
       return res.status(422).json({ error: true, message: `Sales Order "${refNumber}" not found in Zoho Books. Please verify the PO reference number and try again.` });
     }
 
-    // 2. Fetch full SO + invoice custom field definitions in parallel
-    const [soFullData, invCfDefs] = await Promise.all([
-      zoho.getSalesOrderById(soSummary.salesorder_id),
-      zoho.getCustomFieldsByModule('invoices'),
-    ]);
+    // 2. Fetch full SO details
+    const soFullData = await zoho.getSalesOrderById(soSummary.salesorder_id);
     const so = soFullData.salesorder;
     if (!so) {
       return res.status(422).json({ error: true, message: `Could not load Sales Order details for SO ${soSummary.salesorder_id}` });
@@ -443,13 +457,13 @@ router.post('/', upload.single('file'), async (req, res) => {
       return res.status(422).json({ error: true, message: `SO "${refNumber}" has no line items — cannot create invoice` });
     }
 
-    // 5. Build custom fields — only those that exist on the Invoice module in Zoho
-    const invCfLabels = new Set(invCfDefs.map(cf => cf.label));
-    const soCfMap     = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.label, cf.value]));
+    // 5. Build custom fields using static mapping
+    const soCfMap = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.label, cf.value]));
 
     const invoiceCustomFields = [
-      ...SO_CF_LABELS.filter(l => invCfLabels.has(l)).map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
-      ...NA_CF_LABELS.filter(l => invCfLabels.has(l)).map(l => ({ label: l, value: 'NA' })),
+      ...SO_CF_LABELS.map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
+      ...FIXED_CFS,
+      ...NA_CF_LABELS.map(l => ({ label: l, value: 'NA' })),
     ];
 
     invoicePayload = {
