@@ -443,6 +443,8 @@ router.post('/', upload.single('file'), async (req, res) => {
     }
 
     console.log(`[AutoInvoice] SO ${so.salesorder_number} (${so.salesorder_id}), customer ${so.customer_id}, ${(so.line_items || []).length} line items`);
+    // Log first SO line item fully so we can see batch-related fields
+    if (so.line_items?.[0]) console.log('[AutoInvoice] SO line_items[0] keys:', JSON.stringify(so.line_items[0], null, 2));
 
     // 3. Build qty lookup from bill line items (item_id → quantity)
     const billQtyMap = new Map(
@@ -458,6 +460,10 @@ router.post('/', upload.single('file'), async (req, res) => {
       const soLineMap = new Map((Array.isArray(so.line_items) ? so.line_items : []).map(li => [li.item_id, li]));
       invoiceLineItems = invoicePayloadOverride.line_items.map(li => {
         const soLi = soLineMap.get(li.item_id) || {};
+        // Use SO batch assignments if available, otherwise default to batch_number 'NA'
+        const invBatchDetails = Array.isArray(soLi.so_item_batch_details) && soLi.so_item_batch_details.length > 0
+          ? soLi.so_item_batch_details.map(bd => ({ so_item_batch_detail_id: bd.so_item_batch_detail_id, quantity: li.quantity }))
+          : [{ batch_number: li.batch_number || 'NA', quantity: li.quantity }];
         return {
           so_line_item_id: li.so_line_item_id || soLi.line_item_id,
           item_id:         li.item_id,
@@ -465,7 +471,7 @@ router.post('/', upload.single('file'), async (req, res) => {
           quantity:        li.quantity,
           rate:            li.rate,
           unit:            li.unit,
-          invoice_item_batch_details: [{ batch_number: li.batch_number || 'NA', quantity: li.quantity }],
+          invoice_item_batch_details: invBatchDetails,
           ...(soLi.account_id              && { account_id:              soLi.account_id }),
           ...(soLi.tax_id                  && { tax_id:                  soLi.tax_id }),
           ...(soLi.tax_exemption_id        && { tax_exemption_id:        soLi.tax_exemption_id }),
@@ -477,6 +483,10 @@ router.post('/', upload.single('file'), async (req, res) => {
         .filter(soLi => billQtyMap.has(soLi.item_id) && billQtyMap.get(soLi.item_id) > 0)
         .map(soLi => {
           const qty = billQtyMap.get(soLi.item_id);
+          // Use SO batch assignments if available, otherwise default to batch_number 'NA'
+          const invBatchDetails = Array.isArray(soLi.so_item_batch_details) && soLi.so_item_batch_details.length > 0
+            ? soLi.so_item_batch_details.map(bd => ({ so_item_batch_detail_id: bd.so_item_batch_detail_id, quantity: qty }))
+            : [{ batch_number: 'NA', quantity: qty }];
           return {
             so_line_item_id: soLi.line_item_id,   // links to SO line item — inherits tax config
             item_id:         soLi.item_id,
@@ -484,7 +494,7 @@ router.post('/', upload.single('file'), async (req, res) => {
             quantity:        qty,  // always use bill qty, never SO qty
             rate:            soLi.rate,
             unit:            soLi.unit,
-            invoice_item_batch_details: [{ batch_number: 'NA', quantity: qty }],
+            invoice_item_batch_details: invBatchDetails,
             ...(soLi.account_id              && { account_id:              soLi.account_id }),
             ...(soLi.tax_id                  && { tax_id:                  soLi.tax_id }),
             ...(soLi.tax_exemption_id        && { tax_exemption_id:        soLi.tax_exemption_id }),
