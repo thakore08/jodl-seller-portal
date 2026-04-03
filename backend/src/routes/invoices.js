@@ -71,7 +71,7 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
   const SO_CF_LABELS_PREVIEW = [
     'JOPL Sales Order Reference', 'Seller Order Number', 'Biz Segment',
     'Supply Source', 'Incoming Payment', 'E-Commerce', 'Payment mode',
-    'Credit Instrument', 'Delivery Method', 'Credit limit referenceID',
+    'Credit Instrument', 'Delivery Method',
   ];
   const FIXED_CFS_PREVIEW = [
     { label: 'Purchase Bill Reference No', value: 'NA' },  // bill_number not known yet at extract time
@@ -89,9 +89,11 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
         const soFullData = await zoho.getSalesOrderById(soSummary.salesorder_id);
         const so         = soFullData.salesorder;
         if (so) {
-          const soCfMap = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.label, cf.value]));
+          const soCfMap   = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.label,          cf.value]));
+          const soCfIdMap = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.customfield_id, cf.value]));
           const custom_fields = [
             ...SO_CF_LABELS_PREVIEW.map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
+            { customfield_id: 'cf_credit_limit_reference_id', value: soCfIdMap.get('cf_credit_limit_reference_id') ?? 'NA' },
             ...FIXED_CFS_PREVIEW,
           ];
           invoice_preview = {
@@ -403,7 +405,7 @@ router.post('/', upload.single('file'), async (req, res) => {
   const SO_CF_LABELS = [
     'JOPL Sales Order Reference', 'Seller Order Number', 'Biz Segment',
     'Supply Source', 'Incoming Payment', 'E-Commerce', 'Payment mode',
-    'Credit Instrument', 'Delivery Method', 'Credit limit referenceID',
+    'Credit Instrument', 'Delivery Method',
   ];
   const FIXED_CFS = [
     { label: 'Purchase Bill Reference No', value: bill_number || 'NA' },
@@ -488,9 +490,11 @@ router.post('/', upload.single('file'), async (req, res) => {
     if (invoicePayloadOverride?.custom_fields) {
       invoiceCustomFields = invoicePayloadOverride.custom_fields.map(cf => ({ label: cf.label, value: cf.value }));
     } else {
-      const soCfMap = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.label, cf.value]));
+      const soCfMap   = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.label,          cf.value]));
+      const soCfIdMap = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.customfield_id, cf.value]));
       invoiceCustomFields = [
         ...SO_CF_LABELS.map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
+        { customfield_id: 'cf_credit_limit_reference_id', value: soCfIdMap.get('cf_credit_limit_reference_id') ?? 'NA' },
         ...FIXED_CFS,
       ];
     }
