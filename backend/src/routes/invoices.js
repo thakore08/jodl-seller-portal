@@ -480,18 +480,20 @@ router.post('/', upload.single('file'), async (req, res) => {
         };
       });
     } else {
-      invoiceLineItems = (Array.isArray(so.line_items) ? so.line_items : []).map(soLi => ({
-        so_line_item_id: soLi.line_item_id,   // links to SO line item — inherits tax config
-        item_id:         soLi.item_id,
-        name:            soLi.name,
-        quantity:        billQtyMap.get(soLi.item_id) ?? soLi.quantity,
-        rate:            soLi.rate,
-        unit:            soLi.unit,
-        ...(soLi.account_id              && { account_id:              soLi.account_id }),
-        ...(soLi.tax_id                  && { tax_id:                  soLi.tax_id }),
-        ...(soLi.tax_exemption_id        && { tax_exemption_id:        soLi.tax_exemption_id }),
-        ...(soLi.is_reverse_charge_taxable != null && { is_reverse_charge_taxable: soLi.is_reverse_charge_taxable }),
-      }));
+      invoiceLineItems = (Array.isArray(so.line_items) ? so.line_items : [])
+        .filter(soLi => billQtyMap.has(soLi.item_id) && billQtyMap.get(soLi.item_id) > 0)
+        .map(soLi => ({
+          so_line_item_id: soLi.line_item_id,   // links to SO line item — inherits tax config
+          item_id:         soLi.item_id,
+          name:            soLi.name,
+          quantity:        billQtyMap.get(soLi.item_id),  // always use bill qty, never SO qty
+          rate:            soLi.rate,
+          unit:            soLi.unit,
+          ...(soLi.account_id              && { account_id:              soLi.account_id }),
+          ...(soLi.tax_id                  && { tax_id:                  soLi.tax_id }),
+          ...(soLi.tax_exemption_id        && { tax_exemption_id:        soLi.tax_exemption_id }),
+          ...(soLi.is_reverse_charge_taxable != null && { is_reverse_charge_taxable: soLi.is_reverse_charge_taxable }),
+        }));
     }
 
     if (invoiceLineItems.length === 0) {

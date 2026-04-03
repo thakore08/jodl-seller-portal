@@ -148,14 +148,10 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
       if (rawPreview && billQtyByItemId.size > 0) {
         setInvoicePreview({
           ...rawPreview,
+          // Only include items that are on the bill with qty > 0
           line_items: rawPreview.line_items
-            .map(li => ({
-              ...li,
-              quantity: billQtyByItemId.has(li.item_id)
-                ? billQtyByItemId.get(li.item_id)
-                : li.quantity,
-            }))
-            .filter(li => (billQtyByItemId.get(li.item_id) ?? li.quantity) > 0),
+            .filter(li => billQtyByItemId.has(li.item_id) && billQtyByItemId.get(li.item_id) > 0)
+            .map(li => ({ ...li, quantity: billQtyByItemId.get(li.item_id) })),
         });
       } else {
         setInvoicePreview(rawPreview);
