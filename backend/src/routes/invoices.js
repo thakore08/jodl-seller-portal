@@ -450,7 +450,10 @@ router.post('/', upload.single('file'), async (req, res) => {
       quantity:  billQtyMap.get(soLi.item_id) ?? soLi.quantity,
       rate:      soLi.rate,
       unit:      soLi.unit,
-      ...(soLi.account_id && { account_id: soLi.account_id }),
+      ...(soLi.account_id              && { account_id:              soLi.account_id }),
+      ...(soLi.tax_id                  && { tax_id:                  soLi.tax_id }),
+      ...(soLi.tax_exemption_id        && { tax_exemption_id:        soLi.tax_exemption_id }),
+      ...(soLi.is_reverse_charge_taxable != null && { is_reverse_charge_taxable: soLi.is_reverse_charge_taxable }),
     }));
 
     if (invoiceLineItems.length === 0) {
