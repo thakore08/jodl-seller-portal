@@ -247,7 +247,8 @@ class ZohoBooksService {
    */
   async getCustomFieldsByModule(module) {
     const data = await this.request('GET', '/settings/customfields', null, { module });
-    return (data.customfields || []);
+    const cfs = data.customfields;
+    return Array.isArray(cfs) ? cfs : [];
   }
 
   // ─── Sales Orders ─────────────────────────────────────────────────────────────
