@@ -393,7 +393,7 @@ router.post('/', upload.single('file'), async (req, res) => {
       account_id:  item.account_id,
     })) || []).map(item => ({
       ...item,
-      batch_details: [{ batch_number: item.batch_number || 'NA', quantity: item.quantity }],
+      bill_item_batch_details: [{ batch_number: item.batch_number || 'NA', quantity: item.quantity }],
     })),
     notes,
     // Tax lines (IGST, CGST, SGST) mapped to Zoho's taxes structure
