@@ -68,28 +68,16 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
   }
 
   // If PO has a linked SO, build invoice payload preview (read-only — no Zoho writes)
-  // Date-type custom fields — must send '' (not 'NA') or Zoho rejects with "Invalid date"
-  const DATE_CF_LABELS_PREVIEW = new Set(['PO date', 'Shipping Bill Date', 'Ewaybill_Transport Document Date']);
-
   const SO_CF_LABELS_PREVIEW = [
     'JOPL Sales Order Reference', 'Seller Order Number', 'Biz Segment',
     'Supply Source', 'Incoming Payment', 'E-Commerce', 'Payment mode',
     'Credit Instrument', 'Delivery Method',
   ];
   const FIXED_CFS_PREVIEW = [
-    { label: 'Purchase Bill Reference No', value: 'NA' },
+    { label: 'Purchase Bill Reference No', value: 'NA' },  // bill_number not known yet at extract time
     { label: 'Ewaybill_TransportMode',     value: 'Road' },
     { label: 'Ewaybill_Distance',          value: '0' },
-    { label: 'Ewaybill_Vehicle Type',      value: '' },
-  ];
-  const NA_CF_LABELS_PREVIEW = [
-    'Shipment reference#', 'Destination', 'Ewaybill_Vehicle Number', 'Motor vehicle no',
-    'PO number', 'PO date', 'LC details 1', 'Dispatch through',
-    'Bill of lading / LR-RR No', 'Ewaybill_TransporterID', 'Ewaybill_Transporter name',
-    'Other References', 'Shipping Bill No', 'Shipping Bill Date', 'Port Code',
-    'Dispatch Doc No', 'Ewaybill_Transport Document Number', 'Claiming Refund',
-    'Ewaybill_Transport Document Date', 'Additional Currency Code', 'Export duty',
-    'Einvoice_PDF_File', 'Ewaybill_Mode of transport',
+    { label: 'Ewaybill_Vehicle Number',    value: 'NA' },
   ];
 
   let invoice_preview = null;
@@ -105,7 +93,6 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
           const custom_fields = [
             ...SO_CF_LABELS_PREVIEW.map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
             ...FIXED_CFS_PREVIEW,
-            ...NA_CF_LABELS_PREVIEW.map(l => ({ label: l, value: DATE_CF_LABELS_PREVIEW.has(l) ? '' : 'NA' })),
           ];
           invoice_preview = {
             customer_id:         so.customer_id,
@@ -375,7 +362,14 @@ router.post('/', upload.single('file'), async (req, res) => {
 
   // Sanitise dates — treat '', 'undefined', null all as "use today"
   const today    = new Date().toISOString().split('T')[0];
-  const safeDate = (v) => (v && v.trim() && v !== 'undefined' && v.trim() !== 'NA') ? v.trim() : null;
+  const safeDate = (v) => {
+    if (!v || typeof v !== 'string') return null;
+    const t = v.trim();
+    if (!t) return null;
+    const lo = t.toLowerCase();
+    if (lo === 'undefined' || lo === 'na' || lo === 'n/a' || lo === 'null') return null;
+    return t;
+  };
 
   const billPayload = {
     vendor_id:                po.vendor_id,
@@ -405,9 +399,7 @@ router.post('/', upload.single('file'), async (req, res) => {
   };
 
   // ── Custom field label lists (SO→Invoice mapping) ────────────────────────────
-  // Date-type custom fields — must send '' (not 'NA') or Zoho rejects with "Invalid date"
-  const DATE_CF_LABELS = new Set(['PO date', 'Shipping Bill Date', 'Ewaybill_Transport Document Date']);
-
+  // Only 13 fields sent — everything else left blank in Zoho (not sent at all)
   const SO_CF_LABELS = [
     'JOPL Sales Order Reference', 'Seller Order Number', 'Biz Segment',
     'Supply Source', 'Incoming Payment', 'E-Commerce', 'Payment mode',
@@ -417,16 +409,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     { label: 'Purchase Bill Reference No', value: bill_number || 'NA' },
     { label: 'Ewaybill_TransportMode',     value: 'Road' },
     { label: 'Ewaybill_Distance',          value: '0' },
-    { label: 'Ewaybill_Vehicle Type',      value: '' },
-  ];
-  const NA_CF_LABELS = [
-    'Shipment reference#', 'Destination', 'Ewaybill_Vehicle Number', 'Motor vehicle no',
-    'PO number', 'PO date', 'LC details 1', 'Dispatch through',
-    'Bill of lading / LR-RR No', 'Ewaybill_TransporterID', 'Ewaybill_Transporter name',
-    'Other References', 'Shipping Bill No', 'Shipping Bill Date', 'Port Code',
-    'Dispatch Doc No', 'Ewaybill_Transport Document Number', 'Claiming Refund',
-    'Ewaybill_Transport Document Date', 'Additional Currency Code', 'Export duty',
-    'Einvoice_PDF_File', 'Ewaybill_Mode of transport',
+    { label: 'Ewaybill_Vehicle Number',    value: 'NA' },
   ];
 
   // ─── Build invoice payload BEFORE creating the bill ──────────────────────────
@@ -509,7 +492,6 @@ router.post('/', upload.single('file'), async (req, res) => {
       invoiceCustomFields = [
         ...SO_CF_LABELS.map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
         ...FIXED_CFS,
-        ...NA_CF_LABELS.map(l => ({ label: l, value: DATE_CF_LABELS.has(l) ? '' : 'NA' })),
       ];
     }
 
