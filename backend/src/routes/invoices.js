@@ -77,7 +77,7 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
     { label: 'Purchase Bill Reference No', value: 'NA' },
     { label: 'Ewaybill_TransportMode',     value: 'Road' },
     { label: 'Ewaybill_Distance',          value: '0' },
-    { label: 'Ewaybill_Vehicle Type',      value: 'Road' },
+    { label: 'Ewaybill_Vehicle Type',      value: '' },
   ];
   const NA_CF_LABELS_PREVIEW = [
     'Shipment reference#', 'Destination', 'Ewaybill_Vehicle Number', 'Motor vehicle no',
@@ -356,6 +356,14 @@ router.post('/', upload.single('file'), async (req, res) => {
     }
   }
 
+  // Parse optional invoice_payload override (user-edited preview from frontend)
+  let invoicePayloadOverride = null;
+  if (req.body.invoice_payload) {
+    try {
+      invoicePayloadOverride = JSON.parse(req.body.invoice_payload);
+    } catch { /* ignore malformed */ }
+  }
+
   // Log raw body so we can see exactly what multer parsed
   console.log('[Invoice] raw body keys:', Object.keys(req.body));
   console.log('[Invoice] raw date:', JSON.stringify(req.body.date), 'due_date:', JSON.stringify(req.body.due_date));
@@ -401,7 +409,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     { label: 'Purchase Bill Reference No', value: bill_number || 'NA' },
     { label: 'Ewaybill_TransportMode',     value: 'Road' },
     { label: 'Ewaybill_Distance',          value: '0' },
-    { label: 'Ewaybill_Vehicle Type',      value: 'Road' },
+    { label: 'Ewaybill_Vehicle Type',      value: '' },
   ];
   const NA_CF_LABELS = [
     'Shipment reference#', 'Destination', 'Ewaybill_Vehicle Number', 'Motor vehicle no',
@@ -435,7 +443,6 @@ router.post('/', upload.single('file'), async (req, res) => {
     }
 
     console.log(`[AutoInvoice] SO ${so.salesorder_number} (${so.salesorder_id}), customer ${so.customer_id}, ${(so.line_items || []).length} line items`);
-    if (so.line_items?.[0]) console.log('[AutoInvoice] first SO line item (tax fields):', JSON.stringify(so.line_items[0], null, 2));
 
     // 3. Build qty lookup from bill line items (item_id → quantity)
     const billQtyMap = new Map(
@@ -444,32 +451,57 @@ router.post('/', upload.single('file'), async (req, res) => {
         .map(b => [b.item_id, b.quantity])
     );
 
-    // 4. Map SO line items with bill quantities by SKU
-    const invoiceLineItems = (Array.isArray(so.line_items) ? so.line_items : []).map(soLi => ({
-      so_line_item_id: soLi.line_item_id,   // links to SO line item — inherits tax config
-      item_id:         soLi.item_id,
-      name:            soLi.name,
-      quantity:        billQtyMap.get(soLi.item_id) ?? soLi.quantity,
-      rate:            soLi.rate,
-      unit:            soLi.unit,
-      ...(soLi.account_id              && { account_id:              soLi.account_id }),
-      ...(soLi.tax_id                  && { tax_id:                  soLi.tax_id }),
-      ...(soLi.tax_exemption_id        && { tax_exemption_id:        soLi.tax_exemption_id }),
-      ...(soLi.is_reverse_charge_taxable != null && { is_reverse_charge_taxable: soLi.is_reverse_charge_taxable }),
-    }));
+    // 4. Map SO line items with bill quantities by SKU (or use frontend override)
+    let invoiceLineItems;
+    if (invoicePayloadOverride?.line_items) {
+      // User edited the preview — use their values, but preserve tax fields from SO
+      const soLineMap = new Map((Array.isArray(so.line_items) ? so.line_items : []).map(li => [li.item_id, li]));
+      invoiceLineItems = invoicePayloadOverride.line_items.map(li => {
+        const soLi = soLineMap.get(li.item_id) || {};
+        return {
+          so_line_item_id: li.so_line_item_id || soLi.line_item_id,
+          item_id:         li.item_id,
+          name:            li.name,
+          quantity:        li.quantity,
+          rate:            li.rate,
+          unit:            li.unit,
+          ...(soLi.account_id              && { account_id:              soLi.account_id }),
+          ...(soLi.tax_id                  && { tax_id:                  soLi.tax_id }),
+          ...(soLi.tax_exemption_id        && { tax_exemption_id:        soLi.tax_exemption_id }),
+          ...(soLi.is_reverse_charge_taxable != null && { is_reverse_charge_taxable: soLi.is_reverse_charge_taxable }),
+        };
+      });
+    } else {
+      invoiceLineItems = (Array.isArray(so.line_items) ? so.line_items : []).map(soLi => ({
+        so_line_item_id: soLi.line_item_id,   // links to SO line item — inherits tax config
+        item_id:         soLi.item_id,
+        name:            soLi.name,
+        quantity:        billQtyMap.get(soLi.item_id) ?? soLi.quantity,
+        rate:            soLi.rate,
+        unit:            soLi.unit,
+        ...(soLi.account_id              && { account_id:              soLi.account_id }),
+        ...(soLi.tax_id                  && { tax_id:                  soLi.tax_id }),
+        ...(soLi.tax_exemption_id        && { tax_exemption_id:        soLi.tax_exemption_id }),
+        ...(soLi.is_reverse_charge_taxable != null && { is_reverse_charge_taxable: soLi.is_reverse_charge_taxable }),
+      }));
+    }
 
     if (invoiceLineItems.length === 0) {
       return res.status(422).json({ error: true, message: `SO "${refNumber}" has no line items — cannot create invoice` });
     }
 
-    // 5. Build custom fields using static mapping
-    const soCfMap = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.label, cf.value]));
-
-    const invoiceCustomFields = [
-      ...SO_CF_LABELS.map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
-      ...FIXED_CFS,
-      ...NA_CF_LABELS.map(l => ({ label: l, value: 'NA' })),
-    ];
+    // 5. Build custom fields (or use frontend override)
+    let invoiceCustomFields;
+    if (invoicePayloadOverride?.custom_fields) {
+      invoiceCustomFields = invoicePayloadOverride.custom_fields.map(cf => ({ label: cf.label, value: cf.value }));
+    } else {
+      const soCfMap = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.label, cf.value]));
+      invoiceCustomFields = [
+        ...SO_CF_LABELS.map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
+        ...FIXED_CFS,
+        ...NA_CF_LABELS.map(l => ({ label: l, value: 'NA' })),
+      ];
+    }
 
     invoicePayload = {
       customer_id:         so.customer_id,

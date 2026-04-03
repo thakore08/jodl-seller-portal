@@ -150,6 +150,19 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
   const addLineItem = () => setLineItems(prev => [...prev, makeEmptyLineItem()]);
   const deleteLineItem = idx => setLineItems(prev => prev.filter((_, i) => i !== idx));
 
+  const updateInvoiceLineItem = (idx, field, value) => {
+    setInvoicePreview(prev => ({
+      ...prev,
+      line_items: prev.line_items.map((li, i) => i === idx ? { ...li, [field]: value } : li),
+    }));
+  };
+  const updateInvoiceCF = (idx, value) => {
+    setInvoicePreview(prev => ({
+      ...prev,
+      custom_fields: prev.custom_fields.map((cf, i) => i === idx ? { ...cf, value } : cf),
+    }));
+  };
+
   const buildTaxLines = () => {
     const lines = [];
     const igstAmount = parseFloat(header.igst_amount) || 0;
@@ -212,6 +225,7 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
     formData.append('notes', '');
     formData.append('line_items', JSON.stringify(finalLineItems));
     formData.append('tax_lines', JSON.stringify(buildTaxLines()));
+    if (invoicePreview) formData.append('invoice_payload', JSON.stringify(invoicePreview));
     if (uploadFile) formData.append('file', uploadFile);
 
     try {
@@ -462,7 +476,8 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
                       <thead>
                         <tr className="bg-blue-100 dark:bg-blue-800/40">
                           <th className="text-left px-2 py-1 font-medium">Item</th>
-                          <th className="text-right px-2 py-1 font-medium">Rate</th>
+                          <th className="text-right px-2 py-1 font-medium">Qty</th>
+                          <th className="text-right px-2 py-1 font-medium">Rate (₹)</th>
                           <th className="text-right px-2 py-1 font-medium">Unit</th>
                         </tr>
                       </thead>
@@ -470,15 +485,27 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
                         {invoicePreview.line_items.map((li, i) => (
                           <tr key={i} className="border-t border-blue-100 dark:border-blue-800/30">
                             <td className="px-2 py-1">{li.name}</td>
-                            <td className="text-right px-2 py-1">₹{li.rate}</td>
-                            <td className="text-right px-2 py-1 text-gray-500">{li.unit || '—'}</td>
+                            <td className="px-2 py-1 text-right">
+                              <input
+                                type="number"
+                                className="input py-0.5 text-xs w-20 text-right"
+                                value={li.quantity}
+                                onChange={e => updateInvoiceLineItem(i, 'quantity', parseFloat(e.target.value) || 0)}
+                              />
+                            </td>
+                            <td className="px-2 py-1 text-right">
+                              <input
+                                type="number"
+                                className="input py-0.5 text-xs w-24 text-right"
+                                value={li.rate}
+                                onChange={e => updateInvoiceLineItem(i, 'rate', parseFloat(e.target.value) || 0)}
+                              />
+                            </td>
+                            <td className="px-2 py-1 text-right text-gray-500">{li.unit || '—'}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 italic">
-                      Quantities will be taken from the bill line items at submit time.
-                    </p>
                   </div>
 
                   {invoicePreview.custom_fields?.length > 0 && (
@@ -486,11 +513,15 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
                       <summary className="cursor-pointer text-gray-500 dark:text-gray-400">
                         Custom fields ({invoicePreview.custom_fields.length})
                       </summary>
-                      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-0.5">
-                        {invoicePreview.custom_fields.map(cf => (
-                          <div key={cf.label} className="flex justify-between gap-2 py-0.5 border-b border-blue-100 dark:border-blue-800/30">
-                            <span className="text-gray-500 dark:text-gray-400 truncate">{cf.label}</span>
-                            <span className="font-medium text-gray-800 dark:text-gray-200 shrink-0">{cf.value ?? '—'}</span>
+                      <div className="mt-2 space-y-1">
+                        {invoicePreview.custom_fields.map((cf, i) => (
+                          <div key={cf.label} className="flex items-center gap-2 py-0.5 border-b border-blue-100 dark:border-blue-800/30">
+                            <span className="text-gray-500 dark:text-gray-400 truncate w-52 shrink-0 text-xs">{cf.label}</span>
+                            <input
+                              className="input py-0.5 text-xs flex-1"
+                              value={cf.value ?? ''}
+                              onChange={e => updateInvoiceCF(i, e.target.value)}
+                            />
                           </div>
                         ))}
                       </div>
