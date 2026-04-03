@@ -110,10 +110,12 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
             salesorder_number:   so.salesorder_number,
             payment_terms_label: so.payment_terms_label,
             line_items: (Array.isArray(so.line_items) ? so.line_items : []).map(li => ({
-              name:    li.name,
-              item_id: li.item_id,
-              rate:    li.rate,
-              unit:    li.unit,
+              name:            li.name,
+              item_id:         li.item_id,
+              so_line_item_id: li.line_item_id,
+              quantity:        li.quantity,
+              rate:            li.rate,
+              unit:            li.unit,
             })),
             custom_fields,
           };
@@ -370,7 +372,7 @@ router.post('/', upload.single('file'), async (req, res) => {
 
   // Sanitise dates — treat '', 'undefined', null all as "use today"
   const today    = new Date().toISOString().split('T')[0];
-  const safeDate = (v) => (v && v.trim() && v !== 'undefined') ? v.trim() : null;
+  const safeDate = (v) => (v && v.trim() && v !== 'undefined' && v.trim() !== 'NA') ? v.trim() : null;
 
   const billPayload = {
     vendor_id:                po.vendor_id,
