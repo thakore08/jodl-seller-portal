@@ -130,8 +130,36 @@ export default function PurchaseBillUploadModal({ open, po, onClose, onSuccess }
       });
       setExtractResult(data);
       setHeader(mapHeaderFromExtract(data.header));
-      setLineItems(mapLineItemsFromExtract(data.line_items, po?.line_items || []));
-      setInvoicePreview(data.invoice_preview || null);
+      const extractedBillItems = mapLineItemsFromExtract(data.line_items, po?.line_items || []);
+      setLineItems(extractedBillItems);
+
+      // Build item_id → bill quantity map from extracted line items
+      const poLineItems = po?.line_items || [];
+      const billQtyByItemId = new Map();
+      extractedBillItems.forEach(bli => {
+        const poIdx = bli.po_item_index === '' ? null : parseInt(bli.po_item_index, 10);
+        const poItem = poIdx != null && !Number.isNaN(poIdx) ? poLineItems[poIdx] : null;
+        if (poItem?.item_id) {
+          billQtyByItemId.set(poItem.item_id, parseFloat(bli.quantity) || 0);
+        }
+      });
+
+      const rawPreview = data.invoice_preview || null;
+      if (rawPreview && billQtyByItemId.size > 0) {
+        setInvoicePreview({
+          ...rawPreview,
+          line_items: rawPreview.line_items
+            .map(li => ({
+              ...li,
+              quantity: billQtyByItemId.has(li.item_id)
+                ? billQtyByItemId.get(li.item_id)
+                : li.quantity,
+            }))
+            .filter(li => (billQtyByItemId.get(li.item_id) ?? li.quantity) > 0),
+        });
+      } else {
+        setInvoicePreview(rawPreview);
+      }
       setPhase('FORM');
     } catch (err) {
       setError(err.response?.data?.message || 'OCR extraction failed. Please fill details manually.');
