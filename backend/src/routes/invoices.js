@@ -68,6 +68,9 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
   }
 
   // If PO has a linked SO, build invoice payload preview (read-only — no Zoho writes)
+  // Date-type custom fields — must send '' (not 'NA') or Zoho rejects with "Invalid date"
+  const DATE_CF_LABELS_PREVIEW = new Set(['PO date', 'Shipping Bill Date', 'Ewaybill_Transport Document Date']);
+
   const SO_CF_LABELS_PREVIEW = [
     'JOPL Sales Order Reference', 'Seller Order Number', 'Biz Segment',
     'Supply Source', 'Incoming Payment', 'E-Commerce', 'Payment mode',
@@ -102,7 +105,7 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
           const custom_fields = [
             ...SO_CF_LABELS_PREVIEW.map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
             ...FIXED_CFS_PREVIEW,
-            ...NA_CF_LABELS_PREVIEW.map(l => ({ label: l, value: 'NA' })),
+            ...NA_CF_LABELS_PREVIEW.map(l => ({ label: l, value: DATE_CF_LABELS_PREVIEW.has(l) ? '' : 'NA' })),
           ];
           invoice_preview = {
             customer_id:         so.customer_id,
@@ -402,6 +405,9 @@ router.post('/', upload.single('file'), async (req, res) => {
   };
 
   // ── Custom field label lists (SO→Invoice mapping) ────────────────────────────
+  // Date-type custom fields — must send '' (not 'NA') or Zoho rejects with "Invalid date"
+  const DATE_CF_LABELS = new Set(['PO date', 'Shipping Bill Date', 'Ewaybill_Transport Document Date']);
+
   const SO_CF_LABELS = [
     'JOPL Sales Order Reference', 'Seller Order Number', 'Biz Segment',
     'Supply Source', 'Incoming Payment', 'E-Commerce', 'Payment mode',
@@ -501,7 +507,7 @@ router.post('/', upload.single('file'), async (req, res) => {
       invoiceCustomFields = [
         ...SO_CF_LABELS.map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
         ...FIXED_CFS,
-        ...NA_CF_LABELS.map(l => ({ label: l, value: 'NA' })),
+        ...NA_CF_LABELS.map(l => ({ label: l, value: DATE_CF_LABELS.has(l) ? '' : 'NA' })),
       ];
     }
 
