@@ -20,7 +20,27 @@ const {
 
 const router = express.Router();
 
-// All routes require authentication
+// ─── Public attachment endpoints (before auth middleware) ─────────────────────
+// Serve PDFs inline — no auth required so direct browser links work.
+router.get('/:id/attachments/bill', (req, res) => {
+  const att = poAttachments.getAttachments(req.params.id).bill;
+  if (!att) return res.status(404).json({ error: true, message: 'No bill attachment' });
+  const fp = path.resolve(process.env.UPLOAD_DIR || './uploads', att.filename);
+  if (!fs.existsSync(fp)) return res.status(404).json({ error: true, message: 'File not found on disk' });
+  res.setHeader('Content-Disposition', `inline; filename="${att.originalName || att.filename}"`);
+  res.sendFile(fp);
+});
+
+router.get('/:id/attachments/invoice', (req, res) => {
+  const att = poAttachments.getAttachments(req.params.id).invoice;
+  if (!att) return res.status(404).json({ error: true, message: 'No invoice attachment' });
+  const fp = path.resolve(process.env.UPLOAD_DIR || './uploads', att.filename);
+  if (!fs.existsSync(fp)) return res.status(404).json({ error: true, message: 'File not found on disk' });
+  res.setHeader('Content-Disposition', `inline; filename="${att.invoiceNumber || att.filename}.pdf"`);
+  res.sendFile(fp);
+});
+
+// All other routes require authentication
 router.use(authenticate);
 
 // Helper: append an event to a PO's activity log
@@ -462,28 +482,6 @@ router.post('/:id/notify', async (req, res) => {
   });
 
   res.json({ success: true, whatsapp: result });
-});
-
-// ─── GET /api/purchase-orders/:id/attachments/bill ───────────────────────────
-// Serve the purchase bill PDF inline (no auth — links are non-guessable UUIDs).
-router.get('/:id/attachments/bill', (req, res) => {
-  const att = poAttachments.getAttachments(req.params.id).bill;
-  if (!att) return res.status(404).json({ error: true, message: 'No bill attachment' });
-  const fp = path.resolve(process.env.UPLOAD_DIR || './uploads', att.filename);
-  if (!fs.existsSync(fp)) return res.status(404).json({ error: true, message: 'File not found on disk' });
-  res.setHeader('Content-Disposition', `inline; filename="${att.originalName || att.filename}"`);
-  res.sendFile(fp);
-});
-
-// ─── GET /api/purchase-orders/:id/attachments/invoice ────────────────────────
-// Serve the Zoho invoice PDF inline.
-router.get('/:id/attachments/invoice', (req, res) => {
-  const att = poAttachments.getAttachments(req.params.id).invoice;
-  if (!att) return res.status(404).json({ error: true, message: 'No invoice attachment' });
-  const fp = path.resolve(process.env.UPLOAD_DIR || './uploads', att.filename);
-  if (!fs.existsSync(fp)) return res.status(404).json({ error: true, message: 'File not found on disk' });
-  res.setHeader('Content-Disposition', `inline; filename="${att.invoiceNumber || att.filename}.pdf"`);
-  res.sendFile(fp);
 });
 
 module.exports = router;
