@@ -71,7 +71,7 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
   const SO_CF_LABELS_PREVIEW = [
     'JOPL Sales Order Reference', 'Seller Order Number', 'Biz Segment',
     'Supply Source', 'Incoming Payment', 'E-Commerce', 'Payment mode',
-    'Credit Instrument', 'Delivery Method',
+    'Credit Instrument', 'Delivery Method', 'Credit limit referenceID',
   ];
   const FIXED_CFS_PREVIEW = [
     { label: 'Purchase Bill Reference No', value: 'NA' },  // bill_number not known yet at extract time
@@ -403,7 +403,7 @@ router.post('/', upload.single('file'), async (req, res) => {
   const SO_CF_LABELS = [
     'JOPL Sales Order Reference', 'Seller Order Number', 'Biz Segment',
     'Supply Source', 'Incoming Payment', 'E-Commerce', 'Payment mode',
-    'Credit Instrument', 'Delivery Method',
+    'Credit Instrument', 'Delivery Method', 'Credit limit referenceID',
   ];
   const FIXED_CFS = [
     { label: 'Purchase Bill Reference No', value: bill_number || 'NA' },
