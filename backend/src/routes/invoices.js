@@ -92,7 +92,7 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
         const so         = soFullData.salesorder;
         const invCfLabels = new Set(invCfDefs.map(cf => cf.label));
         if (so) {
-          const soCfMap = new Map((so.custom_fields || []).map(cf => [cf.label, cf.value]));
+          const soCfMap = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.label, cf.value]));
           const custom_fields = [
             ...SO_CF_LABELS_PREVIEW.filter(l => invCfLabels.has(l)).map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
             ...NA_CF_LABELS_PREVIEW.filter(l => invCfLabels.has(l)).map(l => ({ label: l, value: 'NA' })),
@@ -102,7 +102,7 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
             customer_name:       so.customer_name,
             salesorder_number:   so.salesorder_number,
             payment_terms_label: so.payment_terms_label,
-            line_items: (so.line_items || []).map(li => ({
+            line_items: (Array.isArray(so.line_items) ? so.line_items : []).map(li => ({
               name:    li.name,
               item_id: li.item_id,
               rate:    li.rate,
@@ -430,7 +430,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     );
 
     // 4. Map SO line items with bill quantities by SKU
-    const invoiceLineItems = (so.line_items || []).map(soLi => ({
+    const invoiceLineItems = (Array.isArray(so.line_items) ? so.line_items : []).map(soLi => ({
       item_id:   soLi.item_id,
       name:      soLi.name,
       quantity:  billQtyMap.get(soLi.item_id) ?? soLi.quantity,
@@ -445,7 +445,7 @@ router.post('/', upload.single('file'), async (req, res) => {
 
     // 5. Build custom fields — only those that exist on the Invoice module in Zoho
     const invCfLabels = new Set(invCfDefs.map(cf => cf.label));
-    const soCfMap     = new Map((so.custom_fields || []).map(cf => [cf.label, cf.value]));
+    const soCfMap     = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.label, cf.value]));
 
     const invoiceCustomFields = [
       ...SO_CF_LABELS.filter(l => invCfLabels.has(l)).map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
