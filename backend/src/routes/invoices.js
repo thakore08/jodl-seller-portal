@@ -91,9 +91,13 @@ router.post('/extract', memUpload.single('file'), async (req, res) => {
         if (so) {
           const soCfMap   = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.label,          cf.value]));
           const soCfIdMap = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.customfield_id, cf.value]));
+          const creditLimitRefVal = soCfIdMap.get('cf_credit_limit_reference_id') ?? soCfMap.get('Credit limit referenceID') ?? null;
           const custom_fields = [
             ...SO_CF_LABELS_PREVIEW.map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
-            { customfield_id: 'cf_credit_limit_reference_id', value: soCfIdMap.get('cf_credit_limit_reference_id') ?? 'NA' },
+            // Only include if SO has a real value — sending 'NA' causes Zoho to reject credit orders
+            ...(creditLimitRefVal && creditLimitRefVal !== 'NA'
+              ? [{ customfield_id: 'cf_credit_limit_reference_id', value: creditLimitRefVal }]
+              : []),
             ...FIXED_CFS_PREVIEW,
           ];
           invoice_preview = {
@@ -492,9 +496,13 @@ router.post('/', upload.single('file'), async (req, res) => {
     } else {
       const soCfMap   = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.label,          cf.value]));
       const soCfIdMap = new Map((Array.isArray(so.custom_fields) ? so.custom_fields : []).map(cf => [cf.customfield_id, cf.value]));
+      const creditLimitRefVal = soCfIdMap.get('cf_credit_limit_reference_id') ?? soCfMap.get('Credit limit referenceID') ?? null;
       invoiceCustomFields = [
         ...SO_CF_LABELS.map(l => ({ label: l, value: soCfMap.get(l) ?? 'NA' })),
-        { customfield_id: 'cf_credit_limit_reference_id', value: soCfIdMap.get('cf_credit_limit_reference_id') ?? 'NA' },
+        // Only include if SO has a real value — sending 'NA' causes Zoho to reject credit orders
+        ...(creditLimitRefVal && creditLimitRefVal !== 'NA'
+          ? [{ customfield_id: 'cf_credit_limit_reference_id', value: creditLimitRefVal }]
+          : []),
         ...FIXED_CFS,
       ];
     }
