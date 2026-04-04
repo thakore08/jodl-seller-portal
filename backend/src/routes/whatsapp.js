@@ -105,6 +105,21 @@ async function handleInteractiveReply(message, seller, phone) {
   const resolvedPoNumber = session?.poNumber || resolvedPoId;
   const resolvedPoUrl    = session?.poUrl    || '';
 
+  // ── Bill-Posted: Update Readiness menu trigger ───────────────────────────
+  // Sent on the bill-posted notification; opens the T2 material readiness menu
+  if (buttonReplyId?.startsWith('t2_readiness_')) {
+    const realPoId = buttonReplyId.slice('t2_readiness_'.length);
+    const poNumberForMsg = session?.poNumber || realPoId;
+    sessionSvc.updateSession(phone, { state: 'awaiting_eta_date', poId: realPoId });
+    await whatsapp.sendMaterialReadinessRequest({
+      to:       `+${phone}`,
+      poNumber: poNumberForMsg,
+      poId:     realPoId,
+      poUrl:    session?.poUrl || '',
+    }).catch(() => {});
+    return;
+  }
+
   // ── T2: Material Readiness — Update ETA button ──────────────────────────
   if (buttonReplyId?.startsWith('t2_eta_')) {
     const realPoId = buttonReplyId.slice('t2_eta_'.length);

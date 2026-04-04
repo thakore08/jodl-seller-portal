@@ -126,7 +126,7 @@ export default function RTDLineItemsPanel({ po, rtdData = {}, onMarkReady, onUnd
               <th className="table-th text-right">Qty</th>
               <th className="table-th text-right">Unit</th>
               <th className="table-th text-right">Amount</th>
-              <th className="table-th text-right">Invoiced Qty</th>
+              <th className="table-th text-right">Billed Qty</th>
               <th className="table-th text-center">Original ETA</th>
               <th className="table-th text-center">Revised ETA</th>
               <th className="table-th text-center">RTD Status</th>
@@ -158,7 +158,7 @@ export default function RTDLineItemsPanel({ po, rtdData = {}, onMarkReady, onUnd
                     <td className="table-td text-right whitespace-nowrap font-medium">
                       {po.currency_code} {Number(item.item_total || (item.rate * item.quantity) || 0).toLocaleString('en-IN')}
                     </td>
-                    {/* Invoiced Qty */}
+                    {/* Billed Qty */}
                     <td className="table-td text-right">
                       {item.billed_quantity != null && item.billed_quantity > 0
                         ? <span className="text-green-700 dark:text-green-400 font-medium">{item.billed_quantity}</span>
