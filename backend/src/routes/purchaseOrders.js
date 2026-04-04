@@ -43,6 +43,32 @@ router.get('/:id/attachments/invoice', (req, res) => {
 // All other routes require authentication
 router.use(authenticate);
 
+// ─── GET /api/purchase-orders/:id/whatsapp-chat ───────────────────────────────
+// Returns the full WA message history with the seller associated with this PO.
+// Identifies the seller by vendor_id (passed as ?vendor_id= query param, or falls
+// back to the authenticated seller's own vendor_id).
+router.get('/:id/whatsapp-chat', (req, res) => {
+  const { getMessagesByPhone } = require('../data/waMessages');
+
+  // Resolve the target seller's phone:
+  //  - Admin view: vendor_id passed as ?vendor_id= query param
+  //  - Seller view: falls back to authenticated seller's own vendor_id
+  const vendorId = req.query.vendor_id || req.seller.vendor_id;
+  const seller   = sellers.find(s => s.vendor_id === vendorId);
+
+  if (!seller) {
+    return res.json({ messages: [] });
+  }
+
+  const phone = (seller.whatsapp_number || seller.phone || '').replace(/^\+/, '');
+  if (!phone) {
+    return res.json({ messages: [] });
+  }
+
+  const messages = getMessagesByPhone(phone);
+  res.json({ messages });
+});
+
 // Helper: append an event to a PO's activity log
 function appendActivity(poId, event, actor, details = {}) {
   if (!poActivityLog.has(poId)) poActivityLog.set(poId, []);

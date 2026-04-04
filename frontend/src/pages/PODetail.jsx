@@ -16,6 +16,7 @@ import ActivityLogDrawer from '../components/ActivityLogDrawer';
 import { useAuth } from '../context/AuthContext';
 import WhatsAppMessageModal from '../components/WhatsAppMessageModal';
 import AttachmentsSection from '../components/AttachmentsSection';
+import WAChatLog from '../components/WAChatLog';
 
 // ─── Helper: format Zoho address object (or plain string) ────────────────────
 function formatAddress(addr) {
@@ -642,6 +643,9 @@ export default function PODetail() {
 
       {/* ── Attachments ──────────────────────────────────────────────────────── */}
       <AttachmentsSection po={po} />
+
+      {/* ── WhatsApp Chat Log ────────────────────────────────────────────────── */}
+      <WAChatLog po={po} />
 
       {/* ── Modals ───────────────────────────────────────────────────────────── */}
 

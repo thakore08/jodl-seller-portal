@@ -86,6 +86,23 @@ class WhatsAppService {
         payload,
         { headers: { Authorization: `Bearer ${this.accessToken}`, 'Content-Type': 'application/json' } }
       );
+      // Log outgoing message
+      try {
+        const waMessages = require('../data/waMessages');
+        const body = payload.type === 'text'
+          ? payload.text?.body
+          : payload.type === 'interactive'
+          ? (payload.interactive?.body?.text || `[interactive: ${payload.interactive?.type}]`)
+          : `[${payload.type || 'unknown'}]`;
+        waMessages.logMessage({
+          direction: 'out',
+          phone:     payload.to,
+          body,
+          timestamp: new Date().toISOString(),
+          msgId:     res.data?.messages?.[0]?.id,
+          type:      payload.type,
+        });
+      } catch {}
       return res.data;
     } catch (err) {
       const detail = err.response?.data?.error?.message || err.message;
@@ -295,6 +312,34 @@ class WhatsAppService {
       },
     };
 
+    return this.sendMessage(payload);
+  }
+
+  // ─── Purchase Bill Posted Notification ───────────────────────────────────
+  /**
+   * Sent to the seller when their purchase bill is successfully posted to JODL.
+   *
+   * @param {string} to                 - Seller WhatsApp number
+   * @param {string} billNumber         - Bill number (e.g. "BILL-0023")
+   * @param {string} poReferenceNumber  - SO / reference number linked to the PO
+   * @param {number|string} paymentTerms - Payment terms days (e.g. 30)
+   */
+  async sendBillPostedNotification({ to, billNumber, poReferenceNumber, paymentTerms }) {
+    const termsText = paymentTerms != null ? `${paymentTerms}` : 'agreed';
+    const payload = {
+      messaging_product: 'whatsapp',
+      recipient_type:    'individual',
+      to,
+      type: 'text',
+      text: {
+        body: [
+          `*Purchase bill #${billNumber} has been posted against PO ${poReferenceNumber}*`,
+          '',
+          `The Payment for the same will be done by ${termsText} days as per terms.`,
+          'Thanks for doing business with JSW one Distribution Ltd',
+        ].join('\n'),
+      },
+    };
     return this.sendMessage(payload);
   }
 

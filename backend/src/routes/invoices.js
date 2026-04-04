@@ -572,15 +572,14 @@ router.post('/', upload.single('file'), async (req, res) => {
       .catch(err => console.warn('[Invoice] Bill submit failed:', err.message));
   }
 
-  // fire-and-forget: WhatsApp confirmation
+  // fire-and-forget: WhatsApp bill-posted notification to seller
   if (whatsapp.isConfigured && req.seller.whatsapp_enabled && req.seller.whatsapp_number) {
-    whatsapp.sendInvoiceConfirmation({
-      to:            req.seller.whatsapp_number,
-      invoiceNumber: bill_number || billPayload.bill_number,
-      poNumber:      po.purchaseorder_number,
-      amount:        po.total,
-      currency:      po.currency_code,
-    }).catch(err => console.warn('[WhatsApp] Invoice confirmation failed:', err.message));
+    whatsapp.sendBillPostedNotification({
+      to:                req.seller.whatsapp_number,
+      billNumber:        bill_number || billPayload.bill_number,
+      poReferenceNumber: po.reference_number || po.purchaseorder_number,
+      paymentTerms:      po.payment_terms    || po.payment_terms_label,
+    }).catch(err => console.warn('[WhatsApp] Bill-posted notification failed:', err.message));
   }
 
   // save bill attachment (for PO detail download link)

@@ -49,6 +49,25 @@ router.post('/webhook', async (req, res) => {
 
   console.log('[WhatsApp] Incoming message:', JSON.stringify(message, null, 2));
 
+  // Log incoming message to persistent store
+  try {
+    const waMessages = require('../data/waMessages');
+    const body = message.text
+      || message.buttonReplyTitle
+      || (message.filename ? `[file: ${message.filename}]` : null)
+      || `[${message.type}]`;
+    waMessages.logMessage({
+      direction: 'in',
+      phone:     message.from,
+      body,
+      timestamp: message.timestamp
+        ? new Date(parseInt(message.timestamp, 10) * 1000).toISOString()
+        : new Date().toISOString(),
+      msgId: message.messageId,
+      type:  message.type,
+    });
+  } catch {}
+
   const phone = message.from; // without '+'
 
   // ── Find seller by phone ──────────────────────────────────────────────────
