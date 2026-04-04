@@ -344,8 +344,10 @@ router.post('/', upload.single('file'), async (req, res) => {
                    || null;
       return {
         ...item,
-        item_id:    item.item_id    || poItem?.item_id    || '',
-        account_id: item.account_id || poItem?.account_id || '',
+        item_id:                   item.item_id    || poItem?.item_id    || '',
+        account_id:                item.account_id || poItem?.account_id || '',
+        // Link bill line item to PO line item so Zoho updates billed_quantity on the PO
+        purchaseorder_line_item_id: item.purchaseorder_line_item_id || poItem?.line_item_id || undefined,
       };
     });
   }
@@ -391,12 +393,14 @@ router.post('/', upload.single('file'), async (req, res) => {
     bill_number:       bill_number || '',
     purchaseorder_ids: [purchaseorder_id],
     line_items:        (parsedLineItems || po.line_items?.map(item => ({
-      item_id:     item.item_id,
-      name:        item.name,
-      description: item.description,
-      rate:        item.rate,
-      quantity:    item.quantity,
-      account_id:  item.account_id,
+      item_id:                    item.item_id,
+      name:                       item.name,
+      description:                item.description,
+      rate:                       item.rate,
+      quantity:                   item.quantity,
+      account_id:                 item.account_id,
+      // Links this bill line item to the PO line item → Zoho updates billed_quantity
+      purchaseorder_line_item_id: item.line_item_id || undefined,
     })) || []).map(item => ({
       ...item,
       bill_item_batch_details: [{ batch_number: item.batch_number || 'NA', quantity: item.quantity }],
@@ -538,8 +542,9 @@ router.post('/', upload.single('file'), async (req, res) => {
     }
 
     invoicePayload = {
-      customer_id:         so.customer_id,
-      salesorders:         [{ salesorder_id: so.salesorder_id }],
+      customer_id:   so.customer_id,
+      // salesorder_ids links the invoice to the SO in Zoho Books
+      salesorder_ids: [so.salesorder_id],
       date:                billPayload.date,
       payment_terms:       so.payment_terms,
       payment_terms_label: so.payment_terms_label,
@@ -579,6 +584,8 @@ router.post('/', upload.single('file'), async (req, res) => {
       billNumber:        bill_number || billPayload.bill_number,
       poReferenceNumber: po.reference_number || po.purchaseorder_number,
       paymentTerms:      po.payment_terms    || po.payment_terms_label,
+      poId:              purchaseorder_id,
+      poNumber:          po.purchaseorder_number,
     }).catch(err => console.warn('[WhatsApp] Bill-posted notification failed:', err.message));
   }
 

@@ -315,29 +315,53 @@ class WhatsAppService {
     return this.sendMessage(payload);
   }
 
-  // ─── Purchase Bill Posted Notification ───────────────────────────────────
+  // ─── Purchase Bill Posted Notification (Interactive) ─────────────────────
   /**
    * Sent to the seller when their purchase bill is successfully posted to JODL.
+   * Sends an interactive button message so the seller can:
+   *   📎 Upload Invoice      — triggers the WA invoice upload flow
+   *   📋 Update Readiness    — triggers the material readiness menu
    *
-   * @param {string} to                 - Seller WhatsApp number
-   * @param {string} billNumber         - Bill number (e.g. "BILL-0023")
-   * @param {string} poReferenceNumber  - SO / reference number linked to the PO
+   * @param {string} to                  - Seller WhatsApp number
+   * @param {string} billNumber          - Bill number (e.g. "BILL-0023")
+   * @param {string} poReferenceNumber   - SO / reference number linked to the PO
    * @param {number|string} paymentTerms - Payment terms days (e.g. 30)
+   * @param {string} poId                - Zoho PO ID (for button action IDs)
+   * @param {string} poNumber            - PO number (for session)
    */
-  async sendBillPostedNotification({ to, billNumber, poReferenceNumber, paymentTerms }) {
+  async sendBillPostedNotification({ to, billNumber, poReferenceNumber, paymentTerms, poId, poNumber }) {
     const termsText = paymentTerms != null ? `${paymentTerms}` : 'agreed';
+
+    // Create / update session so subsequent button replies can find the PO context
+    if (poId) {
+      const sessionSvc = require('./whatsappSessionService');
+      const phone = to.replace(/^\+/, '');
+      sessionSvc.updateSession(phone, { poId, poNumber, state: 'bill_posted' });
+    }
+
     const payload = {
       messaging_product: 'whatsapp',
       recipient_type:    'individual',
       to,
-      type: 'text',
-      text: {
-        body: [
-          `*Purchase bill #${billNumber} has been posted against PO ${poReferenceNumber}*`,
-          '',
-          `The Payment for the same will be done by ${termsText} days as per terms.`,
-          'Thanks for doing business with JSW one Distribution Ltd',
-        ].join('\n'),
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        header: {
+          type: 'text',
+          text: `Purchase bill #${billNumber} has been posted against PO ${poReferenceNumber}`,
+        },
+        body: {
+          text: [
+            `The Payment for the same will be done by ${termsText} days as per terms.`,
+            'Thanks for doing business with JSW one Distribution Ltd',
+          ].join('\n'),
+        },
+        action: {
+          buttons: [
+            { type: 'reply', reply: { id: `t4_invoice_${poId || 'na'}`,    title: 'Upload Invoice' } },
+            { type: 'reply', reply: { id: `t2_readiness_${poId || 'na'}`,  title: 'Update Readiness' } },
+          ],
+        },
       },
     };
     return this.sendMessage(payload);
