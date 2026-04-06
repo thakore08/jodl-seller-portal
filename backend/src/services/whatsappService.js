@@ -105,8 +105,14 @@ class WhatsAppService {
       } catch {}
       return res.data;
     } catch (err) {
-      const detail = err.response?.data?.error?.message || err.message;
-      throw Object.assign(new Error(`WhatsApp send failed: ${detail}`), { status: 502 });
+      const metaError = err.response?.data?.error;
+      console.error('[WhatsApp] sendMessage failed:', JSON.stringify(metaError || err.message));
+      const detail = metaError?.message || err.message;
+      throw Object.assign(new Error(`WhatsApp send failed: ${detail}`), {
+        status: 502,
+        metaCode:    metaError?.code,
+        metaSubcode: metaError?.error_subcode,
+      });
     }
   }
 
@@ -524,6 +530,11 @@ class WhatsAppService {
    * @returns {{ sent: boolean, reason?: string }}
    */
   async triggerPONotification(poData) {
+    if (!this.isConfigured) {
+      console.warn('[WhatsApp] triggerPONotification: not configured (missing WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_ACCESS_TOKEN)');
+      return { sent: false, reason: 'not_configured' };
+    }
+
     const { sellers }  = require('../data/sellers');
     const sessionSvc   = require('./whatsappSessionService');
 

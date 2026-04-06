@@ -156,7 +156,13 @@ export default function WhatsAppMessageModal({ po, sellerInfo, onClose, onSent }
       setSuccessMsg(`Message sent to ${sellerInfo.name || sellerInfo.company} successfully.`);
       setTimeout(() => { onSent?.(); onClose(); }, 1800);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to send message. Please try again.');
+      const data = err.response?.data;
+      let msg = data?.message || err.message || 'Failed to send message. Please try again.';
+      // Help the admin understand the 24h customer service window restriction
+      if (data?.metaCode === 131047) {
+        msg += '\n\n💡 This number has not messaged the JODL bot in the last 24 hours. Ask the seller to send any message to the bot first, or add them as a test number in Meta developer console.';
+      }
+      setError(msg);
       setShowConfirm(false);
     } finally {
       setSending(false);

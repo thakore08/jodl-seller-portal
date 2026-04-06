@@ -694,8 +694,35 @@ router.post('/send', authenticate, async (req, res) => {
     });
   }
 
-  // Send via WhatsApp Cloud API
-  const result = await whatsapp.sendTextMessage(to, message);
+  // ── Route T1 (po_issued) through triggerPONotification ──────────────────
+  // This sends the proper interactive Accept/Reject message + creates the
+  // seller session. All other templates send the pre-built text from the frontend.
+  let result;
+  try {
+    if (template_id === 'po_issued' && po_id) {
+      const poData = await zoho.getPurchaseOrderById(po_id);
+      const po = poData.purchaseorder;
+      result = await whatsapp.triggerPONotification(po);
+      if (!result.sent) {
+        return res.status(422).json({
+          error:   true,
+          message: `WhatsApp notification not sent: ${result.reason}`,
+          result,
+        });
+      }
+    } else {
+      // All other templates: send the pre-built text body from the frontend
+      result = await whatsapp.sendTextMessage(to, message);
+    }
+  } catch (err) {
+    console.error('[WhatsApp][AdminSend] Error:', err.message, err.metaCode ? `(Meta code ${err.metaCode})` : '');
+    return res.status(err.status || 500).json({
+      error:      true,
+      message:    err.message,
+      metaCode:   err.metaCode    || null,
+      metaSubcode: err.metaSubcode || null,
+    });
+  }
 
   // Audit log
   const logEntry = {
@@ -763,11 +790,27 @@ router.post('/notify-po', authenticate, async (req, res) => {
   const { poId } = req.body;
   if (!poId) return res.status(400).json({ error: true, message: 'poId required' });
 
-  const poData = await zoho.getPurchaseOrderById(poId);
-  const po     = poData.purchaseorder;
-
-  const result = await whatsapp.triggerPONotification(po);
-  res.json({ success: true, result });
+  try {
+    const poData = await zoho.getPurchaseOrderById(poId);
+    const po     = poData.purchaseorder;
+    const result = await whatsapp.triggerPONotification(po);
+    if (!result.sent) {
+      return res.status(422).json({
+        error:   true,
+        message: `WhatsApp notification not sent: ${result.reason}`,
+        result,
+      });
+    }
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error('[WhatsApp][notify-po]', err.message, err.metaCode ? `(Meta code ${err.metaCode})` : '');
+    res.status(err.status || 500).json({
+      error:       true,
+      message:     err.message,
+      metaCode:    err.metaCode    || null,
+      metaSubcode: err.metaSubcode || null,
+    });
+  }
 });
 
 // ─── GET /api/whatsapp/app-info (auth required) ──────────────────────────────
