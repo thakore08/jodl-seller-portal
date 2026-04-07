@@ -3,25 +3,25 @@
   "configurations": [
     {
       "name": "Frontend (Vite)",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "/Users/sudhanshu.thakore/.nvm/versions/node/v24.14.0/bin/node",
+      "runtimeArgs": ["node_modules/.bin/vite"],
       "port": 5173,
-      "cwd": "frontend"
+      "cwd": "/Users/sudhanshu.thakore/Desktop/jodl-seller-portal/frontend"
     },
     {
       "name": "Backend (Express)",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "/Users/sudhanshu.thakore/.nvm/versions/node/v24.14.0/bin/node",
+      "runtimeArgs": ["node_modules/.bin/nodemon", "server.js"],
       "port": 5000,
-      "cwd": "backend"
+      "cwd": "/Users/sudhanshu.thakore/Desktop/jodl-seller-portal/backend"
     }
   ,{
       "name": "AvailabilityUI (Vite)",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "/Users/sudhanshu.thakore/.nvm/versions/node/v24.14.0/bin/node",
+      "runtimeArgs": ["node_modules/.bin/vite"],
       "port": 5174,
       "autoPort": true,
-      "cwd": "availability-ui"
+      "cwd": "/Users/sudhanshu.thakore/Desktop/jodl-seller-portal/availability-ui"
     }
   ]
 }
