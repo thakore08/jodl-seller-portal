@@ -102,7 +102,9 @@ class WhatsAppService {
           msgId:     res.data?.messages?.[0]?.id,
           type:      payload.type,
         });
-      } catch {}
+      } catch (logErr) {
+        console.error('[WhatsApp] Failed to log outgoing message:', logErr.message);
+      }
       return res.data;
     } catch (err) {
       const metaError = err.response?.data?.error;
