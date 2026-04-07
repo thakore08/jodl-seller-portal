@@ -66,7 +66,9 @@ router.post('/webhook', async (req, res) => {
       msgId: message.messageId,
       type:  message.type,
     });
-  } catch {}
+  } catch (err) {
+    console.error('[WhatsApp] Failed to log incoming message:', err.message);
+  }
 
   const phone = message.from; // without '+'
 

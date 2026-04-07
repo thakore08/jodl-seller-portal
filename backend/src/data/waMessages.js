@@ -19,7 +19,15 @@
 const fs   = require('fs');
 const path = require('path');
 
-const STORE_FILE = path.resolve(process.env.UPLOAD_DIR || './uploads', 'wa_messages.json');
+// Resolve path relative to this file's location so it works regardless of cwd.
+// Resolves to:  backend/src/data/../../uploads/wa_messages.json  →  backend/uploads/wa_messages.json
+const UPLOAD_DIR  = process.env.UPLOAD_DIR
+  ? path.resolve(process.env.UPLOAD_DIR)
+  : path.resolve(__dirname, '../../uploads');
+const STORE_FILE  = path.join(UPLOAD_DIR, 'wa_messages.json');
+
+// Ensure the directory exists
+if (!require('fs').existsSync(UPLOAD_DIR)) require('fs').mkdirSync(UPLOAD_DIR, { recursive: true });
 
 let messages = [];
 
@@ -56,10 +64,14 @@ _load();
  * @param {string}  [opts.type]     - 'text', 'interactive', etc.
  */
 function logMessage({ direction, phone, body, timestamp, msgId, type }) {
+  if (!phone) {
+    console.warn('[WAMessages] logMessage called with missing phone — skipping');
+    return null;
+  }
   const entry = {
     id:        `wa_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     direction,
-    phone:     phone.replace(/^\+/, ''),
+    phone:     String(phone).replace(/^\+/, ''),
     body:      body || '',
     timestamp: timestamp || new Date().toISOString(),
   };
@@ -68,6 +80,7 @@ function logMessage({ direction, phone, body, timestamp, msgId, type }) {
 
   messages.push(entry);
   _save();
+  console.log(`[WAMessages] Logged ${direction} message from/to ${entry.phone}: "${(entry.body || '').slice(0, 60)}"`);
   return entry;
 }
 
