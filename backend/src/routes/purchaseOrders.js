@@ -15,6 +15,7 @@ const {
   poLineDeliveryDates,
   poRTDData,
   poActivityLog,
+  saveLocalState,
 } = require('../data/poLocalState');
 
 // No time window — any unnotified 'issued' PO is always notified.
@@ -73,13 +74,15 @@ router.get('/:id/whatsapp-chat', (req, res) => {
 
 // Helper: append an event to a PO's activity log
 function appendActivity(poId, event, actor, details = {}) {
-  if (!poActivityLog.has(poId)) poActivityLog.set(poId, []);
-  poActivityLog.get(poId).unshift({
+  const entries = poActivityLog.has(poId) ? [...(poActivityLog.get(poId) || [])] : [];
+  entries.unshift({
     event,
     actor,
     timestamp: new Date().toISOString(),
     details,
   });
+  poActivityLog.set(poId, entries);
+  saveLocalState();
 }
 
 function isValidDateString(value) {
@@ -114,6 +117,18 @@ function addDays(dateString, days) {
 
 function sumField(rows, field) {
   return rows.reduce((sum, row) => sum + toNumber(row?.[field]), 0);
+}
+
+function splitTotal(total, parts) {
+  if (parts <= 0) return [];
+  const rounded = Math.round(toNumber(total) * 100);
+  const base = Math.floor(rounded / parts);
+  let remainder = rounded - (base * parts);
+  return Array.from({ length: parts }, () => {
+    const value = base + (remainder > 0 ? 1 : 0);
+    if (remainder > 0) remainder -= 1;
+    return value / 100;
+  });
 }
 
 function buildProductionPlan(po, existingPlan = null, incomingPlan = {}) {
@@ -229,6 +244,18 @@ function buildProductionPlan(po, existingPlan = null, incomingPlan = {}) {
   };
 }
 
+function getEffectiveStatus(po) {
+  if (!po) return null;
+  if (po.local_status === 'rejected') return 'rejected';
+  if (po.local_status === 'dispatched') return 'dispatched';
+  if (po.local_status === 'accepted') return 'accepted';
+  if (po.status === 'cancelled') return 'rejected';
+  if (po.status === 'billed') return 'invoiced';
+  if (po.status === 'open') return 'issued';
+  if (po.status === 'issued') return 'issued';
+  return null;
+}
+
 // Helper: inject all local data into a single PO object
 function mergeLocalStatus(po) {
   if (!po) return po;
@@ -297,11 +324,39 @@ router.get('/stats', async (req, res) => {
 
 // ─── GET /api/purchase-orders/production-plans ──────────────────────────────
 router.get('/production-plans', requireRole('seller_admin', 'operations_user'), async (req, res) => {
-  const plans = listProductionPlans()
-    .map(plan => ({
-      ...plan,
-      line_count: Array.isArray(plan.lines) ? plan.lines.length : 0,
-    }))
+  const vendorId = req.seller.vendor_id;
+  const data = await zoho.getPurchaseOrders({
+    page: 1,
+    per_page: 200,
+    ...(vendorId ? { vendor_id: vendorId } : {}),
+  });
+
+  const planMap = new Map(listProductionPlans().map(plan => [plan.po_id, plan]));
+
+  const productionEligible = (data.purchaseorders || [])
+    .filter(po => po.status !== 'draft')
+    .map(mergeLocalStatus)
+    .filter(po => {
+      const existingPlan = planMap.get(po.purchaseorder_id) || null;
+      const effectiveStatus = getEffectiveStatus(po);
+      const sellerAccepted = ['accepted', 'dispatched'].includes(po.local_status);
+
+      // Production should only unlock after explicit seller acceptance.
+      // If a plan already exists, keep showing it unless the PO was rejected.
+      return effectiveStatus !== 'rejected' && (sellerAccepted || !!existingPlan);
+    });
+
+  const plans = productionEligible
+    .map(po => {
+      const existingPlan = planMap.get(po.purchaseorder_id) || null;
+      const plan = buildProductionPlan(po, existingPlan);
+      return {
+        ...plan,
+        has_saved_plan: !!existingPlan,
+        effective_status: getEffectiveStatus(po),
+        line_count: Array.isArray(plan.lines) ? plan.lines.length : 0,
+      };
+    })
     .sort((a, b) => String(b.last_updated_at || b.submitted_at || '').localeCompare(String(a.last_updated_at || a.submitted_at || '')));
 
   res.json({ success: true, production_plans: plans });
@@ -418,6 +473,77 @@ router.post('/:id/production-plan/approve', requireRole('seller_admin'), async (
   });
 
   res.json({ success: true, message: 'Production plan approved', production_plan: nextPlan });
+});
+
+// ─── POST /api/purchase-orders/:id/production-plan/actuals ──────────────────
+// Approved plans allow only row-wise actual + remarks updates.
+router.post('/:id/production-plan/actuals', requireRole('seller_admin', 'operations_user'), async (req, res) => {
+  const poData = await zoho.getPurchaseOrderById(req.params.id);
+  const po = poData.purchaseorder;
+  if (!po) {
+    return res.status(404).json({ error: true, message: 'Purchase order not found' });
+  }
+
+  const existingPlan = getProductionPlan(req.params.id);
+  if (!existingPlan) {
+    return res.status(400).json({ error: true, message: 'No production plan found' });
+  }
+  if (existingPlan.status !== 'approved') {
+    return res.status(400).json({ error: true, message: 'Actual updates are allowed only after plan approval' });
+  }
+
+  const { line_id, entry_ids, actual_qty, remarks = '' } = req.body || {};
+  if (!line_id || !Array.isArray(entry_ids) || entry_ids.length === 0) {
+    return res.status(400).json({ error: true, message: 'line_id and entry_ids are required' });
+  }
+
+  const actualValue = toNumber(actual_qty);
+  const nextLines = (existingPlan.lines || []).map(line => {
+    if (line.line_id !== line_id) return line;
+
+    const targetEntries = line.entries.filter(entry => entry_ids.includes(entry.entry_id));
+    if (!targetEntries.length) return line;
+
+    const distributedActuals = splitTotal(actualValue, targetEntries.length);
+    let entryIndex = 0;
+
+    return {
+      ...line,
+      entries: line.entries.map(entry => {
+        if (!entry_ids.includes(entry.entry_id)) return entry;
+        const nextActual = distributedActuals[entryIndex] || 0;
+        entryIndex += 1;
+        return {
+          ...entry,
+          actual_qty: nextActual,
+          good_qty: nextActual,
+          remarks: typeof remarks === 'string' ? remarks.trim() : '',
+          variance_qty: nextActual - toNumber(entry.planned_qty),
+        };
+      }),
+    };
+  });
+
+  const nextPlan = buildProductionPlan(po, {
+    ...existingPlan,
+    lines: nextLines,
+  });
+  nextPlan.status = existingPlan.status;
+  nextPlan.submitted_by = existingPlan.submitted_by;
+  nextPlan.submitted_at = existingPlan.submitted_at;
+  nextPlan.approved_by = existingPlan.approved_by;
+  nextPlan.approved_at = existingPlan.approved_at;
+  nextPlan.last_updated_by = req.seller.name || req.seller.email;
+  nextPlan.last_updated_at = new Date().toISOString();
+
+  setProductionPlan(req.params.id, nextPlan);
+  appendActivity(req.params.id, 'production_actual_updated', req.seller.name || req.seller.email, {
+    line_id,
+    actual_qty: actualValue,
+    remarks: typeof remarks === 'string' ? remarks.trim() : '',
+  });
+
+  res.json({ success: true, message: 'Production actual updated', production_plan: nextPlan });
 });
 
 // ─── POST /api/purchase-orders/:id/accept ────────────────────────────────────

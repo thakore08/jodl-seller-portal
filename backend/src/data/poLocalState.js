@@ -1,28 +1,23 @@
-/**
- * Shared in-memory PO state.
- *
- * Exported as a single module so both purchaseOrders.js and whatsapp.js
- * read/write the same Maps — no circular dependencies.
- *
- * notifiedPoIds is persisted to disk so it survives crashes and manual
- * restarts. On a full deploy (Render wipes the filesystem), the file is
- * gone — a time-based guard in purchaseOrders.js prevents re-notifying
- * POs that are older than PO_NOTIFY_WINDOW_DAYS (default 3 days).
- */
-
 const fs   = require('fs');
 const path = require('path');
 
-// ─── Persisted notified PO IDs ────────────────────────────────────────────────
-const PERSIST_FILE = path.join(
+const UPLOAD_DIR = process.env.UPLOAD_DIR || './uploads';
+const NOTIFIED_FILE = path.join(
   process.env.UPLOAD_DIR || './uploads',
   'notified_pos.json'
 );
+const LOCAL_STATE_FILE = path.join(UPLOAD_DIR, 'po_local_state.json');
+
+function ensureUploadDir() {
+  try {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  } catch {}
+}
 
 function _load() {
   try {
-    if (fs.existsSync(PERSIST_FILE)) {
-      const { ids } = JSON.parse(fs.readFileSync(PERSIST_FILE, 'utf8'));
+    if (fs.existsSync(NOTIFIED_FILE)) {
+      const { ids } = JSON.parse(fs.readFileSync(NOTIFIED_FILE, 'utf8'));
       return new Set(Array.isArray(ids) ? ids : []);
     }
   } catch {}
@@ -31,7 +26,8 @@ function _load() {
 
 function _save(set) {
   try {
-    fs.writeFileSync(PERSIST_FILE, JSON.stringify({ ids: [...set] }));
+    ensureUploadDir();
+    fs.writeFileSync(NOTIFIED_FILE, JSON.stringify({ ids: [...set] }, null, 2));
   } catch (err) {
     console.warn('[poLocalState] Could not persist notifiedPoIds:', err.message);
   }
@@ -45,23 +41,87 @@ function addNotifiedPoId(id) {
   _save(notifiedPoIds);
 }
 
-// ─── Other in-memory state ────────────────────────────────────────────────────
+function loadLocalState() {
+  try {
+    if (fs.existsSync(LOCAL_STATE_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(LOCAL_STATE_FILE, 'utf8'));
+      return raw && typeof raw === 'object' ? raw : {};
+    }
+  } catch (err) {
+    console.warn('[poLocalState] Could not load local PO state:', err.message);
+  }
+  return {};
+}
 
-// Augmented local status per PO (Zoho's model + JODL extras)
-// Key: Zoho PO ID → Value: 'accepted' | 'rejected' | 'dispatched'
-const poLocalStatus = new Map();
+function toEntriesMap(entries) {
+  return new Map(Array.isArray(entries) ? entries : []);
+}
 
-// Per-line-item delivery dates
-// Key: Zoho PO ID → Value: [{ item_id, name, expected_date }]
-const poLineDeliveryDates = new Map();
+const loadedState = loadLocalState();
 
-// RTD (Ready-to-Dispatch) data per line item
-// Key: Zoho PO ID → Value: { [itemIndex]: RTDEntry }
-const poRTDData = new Map();
+function saveLocalState() {
+  try {
+    ensureUploadDir();
+    const snapshot = {
+      poLocalStatus: [...poLocalStatus.entries()],
+      poLineDeliveryDates: [...poLineDeliveryDates.entries()],
+      poRTDData: [...poRTDData.entries()],
+      poActivityLog: [...poActivityLog.entries()],
+    };
+    fs.writeFileSync(LOCAL_STATE_FILE, JSON.stringify(snapshot, null, 2));
+  } catch (err) {
+    console.warn('[poLocalState] Could not persist local PO state:', err.message);
+  }
+}
 
-// Activity log per PO (most-recent-first)
-// Key: Zoho PO ID → Value: [{ event, actor, timestamp, details }]
-const poActivityLog = new Map();
+function createPersistentMap(initialEntries) {
+  const base = new Map(initialEntries);
+  return {
+    clear() {
+      base.clear();
+      saveLocalState();
+    },
+    delete(key) {
+      const deleted = base.delete(key);
+      saveLocalState();
+      return deleted;
+    },
+    entries() {
+      return base.entries();
+    },
+    forEach(callback, thisArg) {
+      return base.forEach(callback, thisArg);
+    },
+    get(key) {
+      return base.get(key);
+    },
+    has(key) {
+      return base.has(key);
+    },
+    keys() {
+      return base.keys();
+    },
+    set(key, value) {
+      base.set(key, value);
+      saveLocalState();
+      return this;
+    },
+    values() {
+      return base.values();
+    },
+    [Symbol.iterator]() {
+      return base[Symbol.iterator]();
+    },
+    get size() {
+      return base.size;
+    },
+  };
+}
+
+const poLocalStatus = createPersistentMap(toEntriesMap(loadedState.poLocalStatus));
+const poLineDeliveryDates = createPersistentMap(toEntriesMap(loadedState.poLineDeliveryDates));
+const poRTDData = createPersistentMap(toEntriesMap(loadedState.poRTDData));
+const poActivityLog = createPersistentMap(toEntriesMap(loadedState.poActivityLog));
 
 module.exports = {
   poLocalStatus,
@@ -70,4 +130,5 @@ module.exports = {
   poLineDeliveryDates,
   poRTDData,
   poActivityLog,
+  saveLocalState,
 };

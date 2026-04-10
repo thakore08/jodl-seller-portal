@@ -11,6 +11,17 @@ const STATUS_STYLES = {
   approved: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
 };
 
+const PO_STAGE_STYLES = {
+  accepted: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+  dispatched: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
+  invoiced: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+};
+
+const PLAN_PROGRESS_STYLES = {
+  started: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  not_started: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+};
+
 function fmtDate(iso) {
   if (!iso) return '—';
   try {
@@ -93,7 +104,7 @@ export default function ProductionPlans() {
         <div>
           <h1 className="text-base font-bold text-gray-900 dark:text-gray-100">Production Plans</h1>
           <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-            {!loading && `${filteredPlans.length} plan${filteredPlans.length !== 1 ? 's' : ''}`}
+            {!loading && `${filteredPlans.length} production PO${filteredPlans.length !== 1 ? 's' : ''}`}
           </p>
         </div>
         <button onClick={loadPlans} disabled={loading} className="btn-outline shimmer-on-hover">
@@ -164,9 +175,9 @@ export default function ProductionPlans() {
       ) : filteredPlans.length === 0 ? (
         <div className="card py-16 text-center">
           <Factory className="mx-auto h-10 w-10 text-gray-300 dark:text-gray-600" />
-          <h3 className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">No production plans yet</h3>
+          <h3 className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">No production-ready POs yet</h3>
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            Start from any purchase order detail page and create the first production schedule there.
+            Accepted purchase orders will appear here automatically. Once they do, you can open the PO and start the production schedule.
           </p>
         </div>
       ) : (
@@ -193,7 +204,15 @@ export default function ProductionPlans() {
                     <td className="table-td">
                       <div>
                         <p className="font-semibold text-brand-600 dark:text-brand-400">{plan.po_number}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{plan.line_count} line items</p>
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${PO_STAGE_STYLES[plan.effective_status] || 'bg-slate-100 text-slate-700 dark:bg-slate-800/80 dark:text-slate-200'}`}>
+                            {plan.effective_status === 'accepted' ? 'Accepted by Seller' : plan.effective_status}
+                          </span>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${plan.has_saved_plan ? PLAN_PROGRESS_STYLES.started : PLAN_PROGRESS_STYLES.not_started}`}>
+                            {plan.has_saved_plan ? 'Plan Started' : 'Plan Not Started'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{plan.line_count} line items</p>
                       </div>
                     </td>
                     <td className="table-td uppercase">{plan.planning_basis}</td>
@@ -209,8 +228,8 @@ export default function ProductionPlans() {
                     </td>
                     <td className="table-td whitespace-nowrap">{fmtDate(plan.last_updated_at || plan.submitted_at || plan.approved_at)}</td>
                     <td className="table-td text-right">
-                      <Link to={`/purchase-orders/${plan.po_id}`} className="btn-outline inline-flex">
-                        Open PO
+                      <Link to={`/production/${plan.po_id}`} className="btn-outline inline-flex">
+                        Open Production
                       </Link>
                     </td>
                   </tr>
@@ -225,7 +244,17 @@ export default function ProductionPlans() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold text-brand-600 dark:text-brand-400">{plan.po_number}</p>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{plan.line_count} line items · {plan.planning_basis.toUpperCase()}</p>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${PO_STAGE_STYLES[plan.effective_status] || 'bg-slate-100 text-slate-700 dark:bg-slate-800/80 dark:text-slate-200'}`}>
+                        {plan.effective_status === 'accepted' ? 'Accepted by Seller' : plan.effective_status}
+                      </span>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${plan.has_saved_plan ? PLAN_PROGRESS_STYLES.started : PLAN_PROGRESS_STYLES.not_started}`}>
+                        {plan.has_saved_plan ? 'Plan Started' : 'Plan Not Started'}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {plan.line_count} line items · {plan.planning_basis.toUpperCase()}
+                    </p>
                   </div>
                   <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] ${STATUS_STYLES[plan.status] || STATUS_STYLES.draft}`}>
                     {plan.status}
@@ -242,8 +271,8 @@ export default function ProductionPlans() {
                     <TrendingUp className="h-3.5 w-3.5" />
                     {plan.start_date} to {plan.end_date}
                   </span>
-                  <Link to={`/purchase-orders/${plan.po_id}`} className="btn-outline inline-flex">
-                    Open PO
+                  <Link to={`/production/${plan.po_id}`} className="btn-outline inline-flex">
+                    Open Production
                   </Link>
                 </div>
               </div>

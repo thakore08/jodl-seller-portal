@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import {
-  CalendarRange, CheckCircle2, Factory, Save, Send, Target,
-  TrendingUp, Wrench,
+  CalendarRange, Check, CheckCircle2, Factory, Save, Send, Target,
+  TrendingUp,
 } from 'lucide-react';
 import {
-  eachDayOfInterval, format, isAfter, parseISO, startOfMonth, startOfWeek,
+  eachDayOfInterval, endOfWeek, format, isAfter, parseISO, startOfMonth, startOfWeek,
 } from 'date-fns';
 
 const BASIS_HELP = {
@@ -102,6 +102,57 @@ function buildBuckets(startDate, endDate, basis) {
   return Array.from(bucketMap.values());
 }
 
+function buildEntryBuckets(entries, basis) {
+  const bucketMap = new Map();
+
+  (entries || []).forEach(entry => {
+    const date = parseISO(entry.entry_date);
+    let key = entry.entry_date;
+    let label = fmtDate(entry.entry_date);
+    let sortKey = entry.entry_date;
+
+    if (basis === 'week') {
+      const weekStart = startOfWeek(date, { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(date, { weekStartsOn: 1 });
+      key = format(weekStart, 'yyyy-MM-dd');
+      sortKey = key;
+      label = `${format(weekStart, 'dd MMM')} - ${format(weekEnd, 'dd MMM yyyy')}`;
+    }
+
+    if (basis === 'month') {
+      const monthStart = startOfMonth(date);
+      key = format(monthStart, 'yyyy-MM');
+      sortKey = format(monthStart, 'yyyy-MM-01');
+      label = format(monthStart, 'MMMM yyyy');
+    }
+
+    if (!bucketMap.has(key)) bucketMap.set(key, { key, label, sortKey, entries: [] });
+    bucketMap.get(key).entries.push(entry);
+  });
+
+  return Array.from(bucketMap.values()).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+}
+
+function getRTDLineStatus(line, po) {
+  const poLine = po?.line_items?.[line.item_index];
+  const billedQty = safeNumber(poLine?.billed_quantity);
+  const orderedQty = safeNumber(poLine?.quantity ?? line.po_qty);
+
+  if (billedQty > 0) {
+    if (orderedQty > 0 && billedQty >= orderedQty) return 'rtd_dispatched';
+    return 'rtd_partially_dispatched';
+  }
+
+  const rtdEntry = po?.rtd_data?.[line.item_index];
+  if (!rtdEntry) return 'rtd_pending';
+  if (rtdEntry.rtd_marked_ready_at) return 'rtd_ready';
+
+  const today = new Date().toISOString().split('T')[0];
+  const eta = rtdEntry.rtd_eta_revised || rtdEntry.rtd_eta_original;
+  if (eta && eta < today) return 'rtd_overdue';
+  return 'rtd_pending';
+}
+
 function splitTotal(total, parts) {
   if (parts <= 0) return [];
   const rounded = Math.round(safeNumber(total) * 100);
@@ -181,6 +232,94 @@ function summarizePlan(plan) {
   };
 }
 
+function summarizeEntryBucket(bucket) {
+  const entries = bucket.entries || [];
+  const firstRemarks = entries[0]?.remarks || '';
+  return {
+    key: bucket.key,
+    label: bucket.label,
+    entryIds: entries.map(entry => entry.entry_id),
+    planned_qty: entries.reduce((sum, entry) => sum + safeNumber(entry.planned_qty), 0),
+    estimated_qty: entries.reduce((sum, entry) => sum + safeNumber(entry.estimated_qty), 0),
+    actual_qty: entries.reduce((sum, entry) => sum + safeNumber(entry.actual_qty), 0),
+    good_qty: entries.reduce((sum, entry) => sum + safeNumber(entry.good_qty), 0),
+    remarks: entries.every(entry => (entry.remarks || '') === firstRemarks) ? firstRemarks : '',
+  };
+}
+
+const LINE_FLOW = [
+  { key: 'accepted', label: 'Accepted' },
+  { key: 'planned', label: 'Planned' },
+  { key: 'in_production', label: 'In Production' },
+  { key: 'ready', label: 'Ready to Dispatch' },
+  { key: 'dispatched', label: 'Dispatched' },
+];
+
+function getLineFlowStatus(line, po, planStatus) {
+  const rtdStatus = getRTDLineStatus(line, po);
+
+  if (rtdStatus === 'rtd_dispatched' || rtdStatus === 'rtd_partially_dispatched') return 'dispatched';
+  if (rtdStatus === 'rtd_ready') return 'ready';
+  if (safeNumber(line.total_actual_qty) > 0 || safeNumber(line.total_good_qty) > 0) return 'in_production';
+  if (planStatus === 'submitted' || planStatus === 'approved') return 'planned';
+  return 'accepted';
+}
+
+function LineFlowStepper({ status }) {
+  const activeIndex = Math.max(LINE_FLOW.findIndex(step => step.key === status), 0);
+  const activeStep = LINE_FLOW[activeIndex] || LINE_FLOW[0];
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-gray-400">Line Item Stage</span>
+        <span className="rounded-full bg-brand-600/10 px-2.5 py-1 text-xs font-semibold text-brand-700 dark:bg-brand-500/20 dark:text-brand-300">
+          {activeStep.label}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-0.5 w-full overflow-x-auto pb-1">
+        {LINE_FLOW.map((step, index) => {
+          const completed = index < activeIndex;
+          const active = index === activeIndex;
+
+          return (
+            <React.Fragment key={step.key}>
+              <div className="flex flex-col items-center min-w-[98px]">
+                <div
+                  className={`flex h-7 w-7 items-center justify-center rounded-full border text-[10px] font-semibold ${
+                    completed
+                      ? 'border-brand-600 bg-brand-600 text-white dark:border-brand-500 dark:bg-brand-500'
+                      : active
+                        ? 'border-brand-600 bg-brand-600 text-white shadow-[0_0_0_4px_rgba(79,70,229,0.12)] dark:border-brand-400 dark:bg-brand-500'
+                        : 'border-gray-200 bg-white text-gray-400 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-500'
+                  }`}
+                >
+                  {completed ? <Check className="h-3.5 w-3.5" /> : index + 1}
+                </div>
+                <span
+                  className={`mt-1.5 text-[10px] font-semibold whitespace-nowrap text-center ${
+                    active
+                      ? 'text-brand-700 dark:text-brand-300'
+                      : completed
+                        ? 'text-brand-600 dark:text-brand-500'
+                        : 'text-gray-400 dark:text-gray-500'
+                  }`}
+                >
+                  {step.label}
+                </span>
+              </div>
+              {index < LINE_FLOW.length - 1 && (
+                <div className={`h-0.5 min-w-[32px] flex-1 mx-1 ${index < activeIndex ? 'bg-brand-500 dark:bg-brand-500' : 'bg-gray-200 dark:bg-gray-700'}`} />
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function ProductionPlanPanel({
   po,
   plan,
@@ -191,8 +330,10 @@ export default function ProductionPlanPanel({
   onSave,
   onSubmit,
   onApprove,
+  onSaveActualRow,
 }) {
   const [localPlan, setLocalPlan] = useState(plan);
+  const [savingRowKey, setSavingRowKey] = useState(null);
 
   useEffect(() => {
     setLocalPlan(plan);
@@ -209,7 +350,11 @@ export default function ProductionPlanPanel({
   }
 
   const derivedPlan = summarizePlan(localPlan);
-  const locked = derivedPlan.status === 'approved' || !canEdit;
+  const metaLocked = derivedPlan.status !== 'draft' || !canEdit;
+  const canEditDraftPlan = canEdit && derivedPlan.status === 'draft';
+  const canSubmitPlan = canEdit && derivedPlan.status === 'draft';
+  const canApprovePlan = canApprove && derivedPlan.status === 'submitted';
+  const canEditActuals = canEdit && derivedPlan.status === 'approved';
 
   const patchPlan = updater => {
     setLocalPlan(prev => summarizePlan(typeof updater === 'function' ? updater(prev) : updater));
@@ -226,26 +371,6 @@ export default function ProductionPlanPanel({
     }));
   };
 
-  const distributeByBasis = lineIndex => {
-    patchPlan(prev => ({
-      ...prev,
-      lines: prev.lines.map((line, idx) => (
-        idx === lineIndex
-          ? distributeLine(line, prev.start_date, prev.end_date, prev.planning_basis)
-          : line
-      )),
-    }));
-  };
-
-  const updateLineField = (lineIndex, field, value) => {
-    patchPlan(prev => ({
-      ...prev,
-      lines: prev.lines.map((line, idx) => (
-        idx === lineIndex ? { ...line, [field]: value } : line
-      )),
-    }));
-  };
-
   const updateEntryField = (lineIndex, entryIndex, field, value) => {
     patchPlan(prev => ({
       ...prev,
@@ -256,12 +381,59 @@ export default function ProductionPlanPanel({
           entries: line.entries.map((entry, eIdx) => {
             if (eIdx !== entryIndex) return entry;
             const nextEntry = { ...entry, [field]: value };
+            if (field === 'actual_qty') nextEntry.good_qty = safeNumber(value);
             nextEntry.variance_qty = safeNumber(nextEntry.actual_qty) - safeNumber(nextEntry.planned_qty);
             return nextEntry;
           }),
         };
       }),
     }));
+  };
+
+  const updateBucketField = (lineIndex, bucket, field, value) => {
+    const nextValue = field === 'remarks' ? value : safeNumber(value);
+    patchPlan(prev => ({
+      ...prev,
+      lines: prev.lines.map((line, idx) => {
+        if (idx !== lineIndex) return line;
+        const bucketEntryIds = new Set(bucket.entryIds);
+        const affectedEntries = line.entries.filter(entry => bucketEntryIds.has(entry.entry_id));
+        const distributedValues = field === 'remarks'
+          ? Array.from({ length: affectedEntries.length || 1 }, () => nextValue)
+          : splitTotal(nextValue, affectedEntries.length || 1);
+        let distributedIndex = 0;
+
+        return {
+          ...line,
+          entries: line.entries.map(entry => {
+            if (!bucketEntryIds.has(entry.entry_id)) return entry;
+            const patchValue = distributedValues[distributedIndex] ?? (field === 'remarks' ? '' : 0);
+            const nextEntry = { ...entry, [field]: patchValue };
+            if (field === 'actual_qty') nextEntry.good_qty = safeNumber(patchValue);
+            nextEntry.variance_qty = safeNumber(nextEntry.actual_qty) - safeNumber(nextEntry.planned_qty);
+            distributedIndex += 1;
+            return nextEntry;
+          }),
+        };
+      }),
+    }));
+  };
+
+  const handleSaveActualRow = async (line, bucket) => {
+    if (!onSaveActualRow) return;
+    const rowKey = `${line.line_id}-${bucket.key}`;
+    setSavingRowKey(rowKey);
+    try {
+      const nextPlan = await onSaveActualRow({
+        line_id: line.line_id,
+        entry_ids: bucket.entryIds,
+        actual_qty: bucket.actual_qty,
+        remarks: bucket.remarks || '',
+      });
+      if (nextPlan) setLocalPlan(nextPlan);
+    } finally {
+      setSavingRowKey(null);
+    }
   };
 
   const handleSave = () => onSave(derivedPlan);
@@ -275,31 +447,37 @@ export default function ProductionPlanPanel({
           <div>
             <div className="flex items-center gap-2">
               <Factory className="h-5 w-5 text-brand-600 dark:text-brand-400" />
-              <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Production Planning & Actuals</h2>
+              <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Production Planning & Actuals</h2>
               <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] ${STATUS_CLASSES[derivedPlan.status] || STATUS_CLASSES.draft}`}>
                 {derivedPlan.status}
               </span>
             </div>
             <p className="mt-2 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
-              Build a 30+ day production schedule against this PO. Planning basis controls how auto-distribution works; actual output is still captured date by date.
+              Build and approve the plan first. Once approved, row-wise actual and remark updates are saved directly from the table.
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button onClick={syncDateGrid} disabled={locked || saving} className="btn-outline">
-              <CalendarRange className="h-4 w-4" />
-              Sync Date Grid
-            </button>
-            <button onClick={handleSave} disabled={locked || saving} className="btn-outline">
-              <Save className="h-4 w-4" />
-              {saving ? 'Saving…' : 'Save Draft'}
-            </button>
-            <button onClick={handleSubmit} disabled={locked || saving} className="btn-primary">
-              <Send className="h-4 w-4" />
-              Submit Plan
-            </button>
-            {canApprove && (
-              <button onClick={handleApprove} disabled={derivedPlan.status === 'approved' || saving} className="btn-success">
+          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+            {canEditDraftPlan && (
+              <button onClick={syncDateGrid} disabled={saving} className="btn-outline">
+                <CalendarRange className="h-4 w-4" />
+                Sync Date Grid
+              </button>
+            )}
+            {canEditDraftPlan && (
+              <button onClick={handleSave} disabled={saving} className="btn-outline">
+                <Save className="h-4 w-4" />
+                {saving ? 'Saving…' : 'Save Draft'}
+              </button>
+            )}
+            {canSubmitPlan && (
+              <button onClick={handleSubmit} disabled={saving} className="btn-primary">
+                <Send className="h-4 w-4" />
+                Submit Plan
+              </button>
+            )}
+            {canApprovePlan && (
+              <button onClick={handleApprove} disabled={saving} className="btn-success">
                 <CheckCircle2 className="h-4 w-4" />
                 Approve
               </button>
@@ -319,7 +497,7 @@ export default function ProductionPlanPanel({
                   className="input"
                   value={derivedPlan.planning_basis}
                   onChange={e => updateMeta('planning_basis', e.target.value)}
-                  disabled={locked}
+                  disabled={metaLocked}
                 >
                   <option value="day">Day</option>
                   <option value="week">Week</option>
@@ -333,7 +511,7 @@ export default function ProductionPlanPanel({
                   className="input"
                   value={derivedPlan.start_date || ''}
                   onChange={e => updateMeta('start_date', e.target.value)}
-                  disabled={locked}
+                  disabled={metaLocked}
                 />
               </div>
               <div>
@@ -343,7 +521,7 @@ export default function ProductionPlanPanel({
                   className="input"
                   value={derivedPlan.end_date || ''}
                   onChange={e => updateMeta('end_date', e.target.value)}
-                  disabled={locked}
+                  disabled={metaLocked}
                 />
               </div>
             </div>
@@ -354,7 +532,7 @@ export default function ProductionPlanPanel({
                 className="input min-h-[88px] resize-y"
                 value={derivedPlan.remarks || ''}
                 onChange={e => updateMeta('remarks', e.target.value)}
-                disabled={locked}
+                disabled={metaLocked}
                 placeholder="Share assumptions, machine capacity constraints, or risks for this schedule."
               />
             </div>
@@ -368,8 +546,8 @@ export default function ProductionPlanPanel({
               </div>
               <div className="mt-3 space-y-2 text-sm">
                 <div className="flex items-center justify-between"><span>Total PO Qty</span><strong>{derivedPlan.summary.total_po_qty.toLocaleString('en-IN')}</strong></div>
-                <div className="flex items-center justify-between"><span>Planned Qty</span><strong>{derivedPlan.summary.total_planned_qty.toLocaleString('en-IN')}</strong></div>
-                <div className="flex items-center justify-between"><span>Estimated Qty</span><strong>{derivedPlan.summary.total_estimated_qty.toLocaleString('en-IN')}</strong></div>
+                <div className="flex items-center justify-between"><span>Target Planned Qty</span><strong>{derivedPlan.summary.total_planned_qty.toLocaleString('en-IN')}</strong></div>
+                <div className="flex items-center justify-between"><span>Target Estimated Qty</span><strong>{derivedPlan.summary.total_estimated_qty.toLocaleString('en-IN')}</strong></div>
                 <div className="flex items-center justify-between"><span>Remaining Qty</span><strong>{derivedPlan.summary.remaining_qty.toLocaleString('en-IN')}</strong></div>
               </div>
             </div>
@@ -382,22 +560,22 @@ export default function ProductionPlanPanel({
               <div className="mt-3 space-y-2 text-sm">
                 <div className="flex items-center justify-between"><span>Actual Qty</span><strong>{derivedPlan.summary.total_actual_qty.toLocaleString('en-IN')}</strong></div>
                 <div className="flex items-center justify-between"><span>Good Qty</span><strong>{derivedPlan.summary.total_good_qty.toLocaleString('en-IN')}</strong></div>
-                <div className="flex items-center justify-between"><span>Scrap Qty</span><strong>{derivedPlan.summary.total_scrap_qty.toLocaleString('en-IN')}</strong></div>
-                <div className="flex items-center justify-between"><span>Rework Qty</span><strong>{derivedPlan.summary.total_rework_qty.toLocaleString('en-IN')}</strong></div>
+                <div className="flex items-center justify-between"><span>Completion</span><strong>{derivedPlan.summary.total_po_qty > 0 ? `${Math.round((derivedPlan.summary.total_good_qty / derivedPlan.summary.total_po_qty) * 100)}%` : '0%'}</strong></div>
+                <div className="flex items-center justify-between"><span>Balance Qty</span><strong>{derivedPlan.summary.remaining_qty.toLocaleString('en-IN')}</strong></div>
               </div>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-gray-200/80 bg-gradient-to-br from-brand-50 via-white to-signal-50 p-4 dark:border-gray-700 dark:bg-[linear-gradient(135deg,rgba(30,41,59,0.85),rgba(15,23,42,0.95))]">
+            <div className="rounded-2xl border border-gray-200/80 bg-gradient-to-br from-brand-50 via-white to-signal-50 p-4 dark:border-gray-700 dark:bg-[linear-gradient(135deg,rgba(30,41,59,0.85),rgba(15,23,42,0.95))]">
             <div className="flex items-center gap-2 text-gray-700 dark:text-gray-200">
-              <Wrench className="h-4 w-4 text-signal-500" />
-              <span className="text-xs font-semibold uppercase tracking-[0.14em]">Operational Notes</span>
+              <CalendarRange className="h-4 w-4 text-signal-500" />
+              <span className="text-xs font-semibold uppercase tracking-[0.14em]">Display Rules</span>
             </div>
             <ul className="mt-3 space-y-2 text-sm text-gray-600 dark:text-gray-400">
-              <li>PO: <span className="font-semibold text-gray-900 dark:text-gray-100">{po.purchaseorder_number}</span></li>
-              <li>UOM values come directly from each PO line item.</li>
-              <li>Use “Distribute Plan” after changing target quantities or planning basis.</li>
-              <li>Good quantity drives remaining balance against the PO.</li>
+              <li>Day basis shows one row per date.</li>
+              <li>Week basis groups the table into weekly ranges.</li>
+              <li>Month basis groups the table into monthly buckets.</li>
+              <li>Line item status follows Accepted to Planned to Production to RTD to Dispatch.</li>
             </ul>
           </div>
         </div>
@@ -406,109 +584,131 @@ export default function ProductionPlanPanel({
           {derivedPlan.lines.map((line, lineIndex) => (
             <div key={line.line_id || line.item_index} className="rounded-2xl border border-gray-200 dark:border-gray-700">
               <div className="border-b border-gray-100 px-4 py-4 dark:border-gray-700">
-                <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{line.item_name}</h3>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{line.description || 'Production line item linked directly from the PO.'}</p>
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
-                      <span className="rounded-full bg-gray-100 px-2.5 py-1 dark:bg-gray-800">PO Qty: {safeNumber(line.po_qty).toLocaleString('en-IN')} {line.uom || ''}</span>
-                      <span className="rounded-full bg-gray-100 px-2.5 py-1 dark:bg-gray-800">Planned: {safeNumber(line.total_planned_qty).toLocaleString('en-IN')}</span>
-                      <span className="rounded-full bg-gray-100 px-2.5 py-1 dark:bg-gray-800">Good: {safeNumber(line.total_good_qty).toLocaleString('en-IN')}</span>
-                      <span className="rounded-full bg-gray-100 px-2.5 py-1 dark:bg-gray-800">Remaining: {safeNumber(line.remaining_qty).toLocaleString('en-IN')}</span>
-                    </div>
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-gray-200/80 bg-gray-50/90 px-3 py-3 dark:border-gray-700 dark:bg-gray-800/40">
+                    <LineFlowStepper status={getLineFlowStatus(line, po, derivedPlan.status)} />
                   </div>
 
-                  <div className="grid gap-2 sm:grid-cols-3 xl:w-[520px]">
-                    <div>
-                      <label className="label">Target Planned Qty</label>
-                      <input
-                        type="number"
-                        className="input"
-                        value={line.target_planned_qty ?? ''}
-                        onChange={e => updateLineField(lineIndex, 'target_planned_qty', e.target.value)}
-                        disabled={locked}
-                      />
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{line.item_name}</h3>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{line.description || 'Production line item linked directly from the PO.'}</p>
                     </div>
-                    <div>
-                      <label className="label">Target Estimated Qty</label>
-                      <input
-                        type="number"
-                        className="input"
-                        value={line.target_estimated_qty ?? ''}
-                        onChange={e => updateLineField(lineIndex, 'target_estimated_qty', e.target.value)}
-                        disabled={locked}
-                      />
-                    </div>
-                    <div className="flex items-end">
-                      <button
-                        onClick={() => distributeByBasis(lineIndex)}
-                        disabled={locked}
-                        className="btn-outline w-full"
-                      >
-                        Distribute Plan
-                      </button>
+
+                    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-gray-200/80 bg-gray-50/90 px-3 py-2 xl:justify-end xl:max-w-[620px] dark:border-gray-700 dark:bg-gray-800/40">
+                      <div className="rounded-xl bg-white px-3 py-2 dark:bg-gray-900/60">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-gray-400">PO Qty</p>
+                        <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">{safeNumber(line.po_qty).toLocaleString('en-IN')} {line.uom || ''}</p>
+                      </div>
+                      <div className="rounded-xl bg-white px-3 py-2 dark:bg-gray-900/60">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-gray-400">Target Planned</p>
+                        <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">{safeNumber(line.total_planned_qty).toLocaleString('en-IN')}</p>
+                      </div>
+                      <div className="rounded-xl bg-white px-3 py-2 dark:bg-gray-900/60">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-gray-400">Target Estimated</p>
+                        <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-gray-100">{safeNumber(line.total_estimated_qty).toLocaleString('en-IN')}</p>
+                      </div>
+                      <div className="rounded-xl bg-white px-3 py-2 dark:bg-gray-900/60">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-gray-400">Actual</p>
+                        <p className="mt-1 text-sm font-semibold text-emerald-700 dark:text-emerald-400">{safeNumber(line.total_actual_qty).toLocaleString('en-IN')}</p>
+                      </div>
+                      <div className="rounded-xl bg-white px-3 py-2 dark:bg-gray-900/60">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-gray-500 dark:text-gray-400">Remaining</p>
+                        <p className="mt-1 text-sm font-semibold text-amber-700 dark:text-amber-400">{safeNumber(line.remaining_qty).toLocaleString('en-IN')}</p>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
 
               <div className="overflow-x-auto">
-                <table className="min-w-[1320px] w-full">
+                <table className="min-w-[920px] w-full">
                   <thead className="bg-gray-50 dark:bg-gray-700/50">
                     <tr>
-                      <th className="table-th">Date</th>
+                      <th className="table-th">{derivedPlan.planning_basis === 'day' ? 'Date' : derivedPlan.planning_basis === 'week' ? 'Week Range' : 'Month'}</th>
                       <th className="table-th text-right">Planned</th>
                       <th className="table-th text-right">Estimated</th>
                       <th className="table-th text-right">Actual</th>
-                      <th className="table-th text-right">Good</th>
-                      <th className="table-th text-right">Scrap</th>
-                      <th className="table-th text-right">Rework</th>
-                      <th className="table-th text-right">Variance</th>
-                      <th className="table-th">Reason</th>
-                      <th className="table-th">Shift</th>
-                      <th className="table-th">Line/Machine</th>
                       <th className="table-th">Remarks</th>
+                      {canEditActuals && <th className="table-th text-center">Save</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                    {line.entries.map((entry, entryIndex) => (
-                      <tr key={entry.entry_id}>
-                        <td className="table-td whitespace-nowrap font-medium">{fmtDate(entry.entry_date)}</td>
-                        <td className="table-td text-right">
-                          <input type="number" className="input py-1 text-right text-xs" value={entry.planned_qty} onChange={e => updateEntryField(lineIndex, entryIndex, 'planned_qty', e.target.value)} disabled={locked} />
-                        </td>
-                        <td className="table-td text-right">
-                          <input type="number" className="input py-1 text-right text-xs" value={entry.estimated_qty} onChange={e => updateEntryField(lineIndex, entryIndex, 'estimated_qty', e.target.value)} disabled={locked} />
-                        </td>
-                        <td className="table-td text-right">
-                          <input type="number" className="input py-1 text-right text-xs" value={entry.actual_qty} onChange={e => updateEntryField(lineIndex, entryIndex, 'actual_qty', e.target.value)} disabled={locked} />
-                        </td>
-                        <td className="table-td text-right">
-                          <input type="number" className="input py-1 text-right text-xs" value={entry.good_qty} onChange={e => updateEntryField(lineIndex, entryIndex, 'good_qty', e.target.value)} disabled={locked} />
-                        </td>
-                        <td className="table-td text-right">
-                          <input type="number" className="input py-1 text-right text-xs" value={entry.scrap_qty} onChange={e => updateEntryField(lineIndex, entryIndex, 'scrap_qty', e.target.value)} disabled={locked} />
-                        </td>
-                        <td className="table-td text-right">
-                          <input type="number" className="input py-1 text-right text-xs" value={entry.rework_qty} onChange={e => updateEntryField(lineIndex, entryIndex, 'rework_qty', e.target.value)} disabled={locked} />
-                        </td>
-                        <td className={`table-td text-right font-semibold ${safeNumber(entry.variance_qty) < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                          {safeNumber(entry.variance_qty).toLocaleString('en-IN')}
-                        </td>
-                        <td className="table-td">
-                          <input type="text" className="input py-1 text-xs" value={entry.variance_reason || ''} onChange={e => updateEntryField(lineIndex, entryIndex, 'variance_reason', e.target.value)} disabled={locked} />
-                        </td>
-                        <td className="table-td">
-                          <input type="text" className="input py-1 text-xs" value={entry.shift || ''} onChange={e => updateEntryField(lineIndex, entryIndex, 'shift', e.target.value)} disabled={locked} />
-                        </td>
-                        <td className="table-td">
-                          <input type="text" className="input py-1 text-xs" value={entry.machine_or_line || ''} onChange={e => updateEntryField(lineIndex, entryIndex, 'machine_or_line', e.target.value)} disabled={locked} />
-                        </td>
-                        <td className="table-td">
-                          <input type="text" className="input py-1 text-xs" value={entry.remarks || ''} onChange={e => updateEntryField(lineIndex, entryIndex, 'remarks', e.target.value)} disabled={locked} />
-                        </td>
-                      </tr>
-                    ))}
+                    {buildEntryBuckets(line.entries, derivedPlan.planning_basis).map(bucket => {
+                      const bucketSummary = summarizeEntryBucket(bucket);
+                      const isDayView = derivedPlan.planning_basis === 'day';
+                      const bucketRowKey = `${line.line_id}-${bucket.key}`;
+                      const editableEntryIndex = line.entries.findIndex(entry => entry.entry_id === bucketSummary.entryIds[0]);
+                      return (
+                        <tr key={bucket.key}>
+                          <td className="table-td whitespace-nowrap font-medium">{bucketSummary.label}</td>
+                          <td className="table-td text-right">
+                            <input
+                              type="number"
+                              className="input py-1 text-right text-xs"
+                              value={bucketSummary.planned_qty}
+                              onChange={e => (
+                                isDayView
+                                  ? updateEntryField(lineIndex, editableEntryIndex, 'planned_qty', e.target.value)
+                                  : updateBucketField(lineIndex, bucketSummary, 'planned_qty', e.target.value)
+                              )}
+                              disabled={!canEditDraftPlan}
+                            />
+                          </td>
+                          <td className="table-td text-right">
+                            <input
+                              type="number"
+                              className="input py-1 text-right text-xs"
+                              value={bucketSummary.estimated_qty}
+                              onChange={e => (
+                                isDayView
+                                  ? updateEntryField(lineIndex, editableEntryIndex, 'estimated_qty', e.target.value)
+                                  : updateBucketField(lineIndex, bucketSummary, 'estimated_qty', e.target.value)
+                              )}
+                              disabled={!canEditDraftPlan}
+                            />
+                          </td>
+                          <td className="table-td text-right">
+                            <input
+                              type="number"
+                              className="input py-1 text-right text-xs"
+                              value={bucketSummary.actual_qty}
+                              onChange={e => (
+                                isDayView
+                                  ? updateEntryField(lineIndex, editableEntryIndex, 'actual_qty', e.target.value)
+                                  : updateBucketField(lineIndex, bucketSummary, 'actual_qty', e.target.value)
+                              )}
+                              disabled={!canEditActuals}
+                            />
+                          </td>
+                          <td className="table-td">
+                            <input
+                              type="text"
+                              className="input py-1 text-xs"
+                              value={bucketSummary.remarks || ''}
+                              onChange={e => (
+                                isDayView
+                                  ? updateEntryField(lineIndex, editableEntryIndex, 'remarks', e.target.value)
+                                  : updateBucketField(lineIndex, bucketSummary, 'remarks', e.target.value)
+                              )}
+                              disabled={!canEditActuals}
+                            />
+                          </td>
+                          {canEditActuals && (
+                            <td className="table-td text-center">
+                              <button
+                                onClick={() => handleSaveActualRow(line, bucketSummary)}
+                                disabled={saving || savingRowKey === bucketRowKey}
+                                className="btn-outline inline-flex px-2.5"
+                                title="Save row"
+                              >
+                                <Save className="h-4 w-4" />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

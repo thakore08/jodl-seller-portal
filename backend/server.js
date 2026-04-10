@@ -25,6 +25,7 @@ app.use('/uploads', express.static(path.resolve(uploadDir)));
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use('/api/auth',            require('./src/routes/auth'));
 app.use('/api/purchase-orders', require('./src/routes/purchaseOrders'));
+app.use('/api/dispatch',        require('./src/routes/dispatch'));
 app.use('/api/invoices',        require('./src/routes/invoices'));
 app.use('/api/payments',        require('./src/routes/payments'));
 app.use('/api/whatsapp',        require('./src/routes/whatsapp'));

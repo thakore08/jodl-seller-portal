@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle, FileText,
   Calendar, Package, Hash,
@@ -216,6 +216,7 @@ function AcceptModal({ po, onClose, onAccept }) {
 // ─── Main PO Detail page ─────────────────────────────────────────────────────
 export default function PODetail() {
   const { id }                   = useParams();
+  const location                 = useLocation();
   const { hasRole, seller: me }  = useAuth();
 
   const [po,           setPO]           = useState(null);
@@ -234,6 +235,7 @@ export default function PODetail() {
   const [productionSaving, setProductionSaving] = useState(false);
 
   const isJodlAdmin = me?.email === 'seller@demo.com' || me?.role === 'admin';
+  const isProductionView = location.pathname.startsWith('/production');
 
   const loadPO = async () => {
     setLoading(true); setProductionLoading(true); setError('');
@@ -368,6 +370,22 @@ export default function PODetail() {
     }
   };
 
+  const handleSaveProductionActualRow = async payload => {
+    setProductionSaving(true); setError(''); setActionMsg('');
+    try {
+      const { data } = await api.post(`/purchase-orders/${id}/production-plan/actuals`, payload);
+      setProductionPlan(data.production_plan);
+      setActionMsg('Production actual updated.');
+      await loadPO();
+      return data.production_plan;
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update production actual');
+      throw err;
+    } finally {
+      setProductionSaving(false);
+    }
+  };
+
   // ── Derived state ───────────────────────────────────────────────────────────
   const effectiveStatus  = getEffectiveStatus(po);
   const isOpsRole        = hasRole('seller_admin', 'operations_user');
@@ -375,7 +393,7 @@ export default function PODetail() {
   const canManageProduction = hasRole('seller_admin', 'operations_user');
   const canApproveProduction = hasRole('seller_admin');
   const contextualAction = getContextualAction(po, effectiveStatus, isOpsRole, isFinanceRole);
-  const showRTDPanel     = ['accepted', 'dispatched', 'invoiced'].includes(effectiveStatus);
+  const showRTDPanel     = isProductionView && ['accepted', 'dispatched', 'invoiced'].includes(effectiveStatus);
   const rtdReadOnly      = effectiveStatus === 'invoiced';
   const productionEditable = canManageProduction && !['issued', 'rejected'].includes(effectiveStatus);
 
@@ -404,8 +422,8 @@ export default function PODetail() {
   if (effectiveStatus === null) {
     return (
       <div className="max-w-7xl mx-auto space-y-4">
-        <Link to="/purchase-orders" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
-          <ArrowLeft className="h-4 w-4" /> Back to Purchase Orders
+        <Link to={isProductionView ? '/production' : '/purchase-orders'} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
+          <ArrowLeft className="h-4 w-4" /> Back to {isProductionView ? 'Production' : 'Purchase Orders'}
         </Link>
         <div className="card p-6 text-center text-gray-400 dark:text-gray-500">
           <p className="text-sm">This purchase order is not yet synced to the seller portal.</p>
@@ -422,8 +440,12 @@ export default function PODetail() {
       <div className="page-hero">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="hero-title">Purchase Order Control</h2>
-            <p className="hero-subtitle">Validate line items, manage production planning, update RTD status, and progress to purchase bill upload.</p>
+            <h2 className="hero-title">{isProductionView ? 'Production Control' : 'Purchase Order Control'}</h2>
+            <p className="hero-subtitle">
+              {isProductionView
+                ? 'Manage production planning, line-item RTD status, and actual output against this PO.'
+                : 'Validate line items, review PO details, and progress to purchase bill upload.'}
+            </p>
             <div className="mt-3">
               <span className="chip-soft">PO {po.purchaseorder_number}</span>
             </div>
@@ -437,10 +459,10 @@ export default function PODetail() {
 
       {/* Back */}
       <Link
-        to="/purchase-orders"
+        to={isProductionView ? '/production' : '/purchase-orders'}
         className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
       >
-        <ArrowLeft className="h-4 w-4" /> Back to Purchase Orders
+        <ArrowLeft className="h-4 w-4" /> Back to {isProductionView ? 'Production' : 'Purchase Orders'}
       </Link>
 
       {/* Feedback banners */}
@@ -482,7 +504,7 @@ export default function PODetail() {
                 {acting ? 'Processing…' : 'Accept PO'}
               </button>
             )}
-            {contextualAction === 'create_invoice' && (
+            {!isProductionView && contextualAction === 'create_invoice' && (
               <button
                 onClick={() => setShowPurchaseBill(true)}
                 className="btn-primary"
@@ -503,7 +525,7 @@ export default function PODetail() {
             )}
 
             {/* WhatsApp button — admin only */}
-            {isJodlAdmin && (
+            {!isProductionView && isJodlAdmin && (
               <button
                 onClick={() => setShowWaModal(true)}
                 title="Send WhatsApp to Seller"
@@ -619,20 +641,22 @@ export default function PODetail() {
         />
       )}
 
-      <ProductionPlanPanel
-        po={po}
-        plan={productionPlan}
-        loading={productionLoading}
-        canEdit={productionEditable}
-        canApprove={canApproveProduction}
-        saving={productionSaving}
-        onSave={handleSaveProductionPlan}
-        onSubmit={handleSubmitProductionPlan}
-        onApprove={handleApproveProductionPlan}
-      />
+      {isProductionView && (
+        <ProductionPlanPanel
+          po={po}
+          plan={productionPlan}
+          loading={productionLoading}
+          canEdit={productionEditable}
+          canApprove={canApproveProduction}
+          saving={productionSaving}
+          onSave={handleSaveProductionPlan}
+          onSubmit={handleSubmitProductionPlan}
+          onApprove={handleApproveProductionPlan}
+          onSaveActualRow={handleSaveProductionActualRow}
+        />
+      )}
 
-      {/* ── Standard Line Items table (shown when RTD panel is NOT shown) ──────── */}
-      {!showRTDPanel && (
+      {!isProductionView && (
         <div className="card">
           <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Line Items</h2>
@@ -710,10 +734,10 @@ export default function PODetail() {
       )}
 
       {/* ── Attachments ──────────────────────────────────────────────────────── */}
-      <AttachmentsSection po={po} />
+      {!isProductionView && <AttachmentsSection po={po} />}
 
       {/* ── WhatsApp Chat Log ────────────────────────────────────────────────── */}
-      <WAChatLog po={po} />
+      {!isProductionView && <WAChatLog po={po} />}
 
       {/* ── Modals ───────────────────────────────────────────────────────────── */}
 
