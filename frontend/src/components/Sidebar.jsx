@@ -3,7 +3,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, MessageSquare,
   LogOut, Package, X, ChevronLeft, ChevronRight,
-  FileText, CreditCard, User, Bell,
+  FileText, CreditCard, User, Bell, Factory,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -18,6 +18,7 @@ function getNavItems(role) {
   const all = [
     { to: '/',                icon: LayoutDashboard, label: 'Dashboard',       end: true,  roles: null },
     { to: '/purchase-orders', icon: ShoppingCart,    label: 'Purchase Orders', roles: ['seller_admin', 'operations_user'] },
+    { to: '/production',      icon: Factory,         label: 'Production',      roles: ['seller_admin', 'operations_user'] },
     { to: '/invoices',        icon: FileText,        label: 'Invoices',        roles: ['seller_admin', 'finance_user'] },
     { to: '/payments',        icon: CreditCard,      label: 'Payments',        roles: ['seller_admin', 'finance_user'] },
     { to: '/profile',         icon: User,            label: 'Profile',         roles: ['seller_admin'] },

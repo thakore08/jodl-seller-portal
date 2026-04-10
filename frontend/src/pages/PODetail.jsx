@@ -17,6 +17,7 @@ import { useAuth } from '../context/AuthContext';
 import WhatsAppMessageModal from '../components/WhatsAppMessageModal';
 import AttachmentsSection from '../components/AttachmentsSection';
 import WAChatLog from '../components/WAChatLog';
+import ProductionPlanPanel from '../components/ProductionPlanPanel';
 
 // ─── Helper: format Zoho address object (or plain string) ────────────────────
 function formatAddress(addr) {
@@ -228,18 +229,26 @@ export default function PODetail() {
   const [acting,       setActing]       = useState(false);
   const [showWaModal,  setShowWaModal]  = useState(false);
   const [waSellerInfo, setWaSellerInfo] = useState(null);
+  const [productionPlan, setProductionPlan] = useState(null);
+  const [productionLoading, setProductionLoading] = useState(true);
+  const [productionSaving, setProductionSaving] = useState(false);
 
   const isJodlAdmin = me?.email === 'seller@demo.com' || me?.role === 'admin';
 
   const loadPO = async () => {
-    setLoading(true); setError('');
+    setLoading(true); setProductionLoading(true); setError('');
     try {
-      const { data } = await api.get(`/purchase-orders/${id}`);
-      setPO(data.purchaseorder);
+      const [{ data: poData }, { data: planData }] = await Promise.all([
+        api.get(`/purchase-orders/${id}`),
+        api.get(`/purchase-orders/${id}/production-plan`),
+      ]);
+      setPO(poData.purchaseorder);
+      setProductionPlan(planData.production_plan || null);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load purchase order');
     } finally {
       setLoading(false);
+      setProductionLoading(false);
     }
   };
 
@@ -315,13 +324,60 @@ export default function PODetail() {
     );
   };
 
+  const handleSaveProductionPlan = async (nextPlan) => {
+    setProductionSaving(true); setError(''); setActionMsg('');
+    try {
+      const { data } = await api.put(`/purchase-orders/${id}/production-plan`, nextPlan);
+      setProductionPlan(data.production_plan);
+      setActionMsg('Production plan saved.');
+      await loadPO();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to save production plan');
+    } finally {
+      setProductionSaving(false);
+    }
+  };
+
+  const handleSubmitProductionPlan = async (nextPlan) => {
+    setProductionSaving(true); setError(''); setActionMsg('');
+    try {
+      await api.put(`/purchase-orders/${id}/production-plan`, nextPlan);
+      const { data } = await api.post(`/purchase-orders/${id}/production-plan/submit`);
+      setProductionPlan(data.production_plan);
+      setActionMsg('Production plan submitted.');
+      await loadPO();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to submit production plan');
+    } finally {
+      setProductionSaving(false);
+    }
+  };
+
+  const handleApproveProductionPlan = async (nextPlan) => {
+    setProductionSaving(true); setError(''); setActionMsg('');
+    try {
+      await api.put(`/purchase-orders/${id}/production-plan`, nextPlan);
+      const { data } = await api.post(`/purchase-orders/${id}/production-plan/approve`);
+      setProductionPlan(data.production_plan);
+      setActionMsg('Production plan approved.');
+      await loadPO();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to approve production plan');
+    } finally {
+      setProductionSaving(false);
+    }
+  };
+
   // ── Derived state ───────────────────────────────────────────────────────────
   const effectiveStatus  = getEffectiveStatus(po);
   const isOpsRole        = hasRole('seller_admin', 'operations_user');
   const isFinanceRole    = hasRole('seller_admin', 'finance_user');
+  const canManageProduction = hasRole('seller_admin', 'operations_user');
+  const canApproveProduction = hasRole('seller_admin');
   const contextualAction = getContextualAction(po, effectiveStatus, isOpsRole, isFinanceRole);
   const showRTDPanel     = ['accepted', 'dispatched', 'invoiced'].includes(effectiveStatus);
   const rtdReadOnly      = effectiveStatus === 'invoiced';
+  const productionEditable = canManageProduction && !['issued', 'rejected'].includes(effectiveStatus);
 
   // ── Loading / error states ──────────────────────────────────────────────────
   if (loading) {
@@ -347,7 +403,7 @@ export default function PODetail() {
   // Suppress pages for unsynced POs (draft, unknown)
   if (effectiveStatus === null) {
     return (
-      <div className="max-w-4xl mx-auto space-y-4">
+      <div className="max-w-7xl mx-auto space-y-4">
         <Link to="/purchase-orders" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200">
           <ArrowLeft className="h-4 w-4" /> Back to Purchase Orders
         </Link>
@@ -362,12 +418,12 @@ export default function PODetail() {
   const buyerName    = typeof po.customer_name === 'string' ? po.customer_name : null;
 
   return (
-    <div className="space-y-5 max-w-4xl mx-auto">
+    <div className="space-y-5 max-w-7xl mx-auto">
       <div className="page-hero">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="hero-title">Purchase Order Control</h2>
-            <p className="hero-subtitle">Validate line items, update RTD status, and progress to purchase bill upload.</p>
+            <p className="hero-subtitle">Validate line items, manage production planning, update RTD status, and progress to purchase bill upload.</p>
             <div className="mt-3">
               <span className="chip-soft">PO {po.purchaseorder_number}</span>
             </div>
@@ -562,6 +618,18 @@ export default function PODetail() {
           readOnly={rtdReadOnly}
         />
       )}
+
+      <ProductionPlanPanel
+        po={po}
+        plan={productionPlan}
+        loading={productionLoading}
+        canEdit={productionEditable}
+        canApprove={canApproveProduction}
+        saving={productionSaving}
+        onSave={handleSaveProductionPlan}
+        onSubmit={handleSubmitProductionPlan}
+        onApprove={handleApproveProductionPlan}
+      />
 
       {/* ── Standard Line Items table (shown when RTD panel is NOT shown) ──────── */}
       {!showRTDPanel && (
