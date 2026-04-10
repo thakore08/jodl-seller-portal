@@ -8,6 +8,8 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import PurchaseOrders from './pages/PurchaseOrders';
 import PODetail from './pages/PODetail';
+import ProductionPlans from './pages/ProductionPlans';
+import Dispatch from './pages/Dispatch';
 import Invoices from './pages/Invoices';
 import Payments from './pages/Payments';
 import PaymentDetail from './pages/PaymentDetail';
@@ -75,6 +77,15 @@ export default function App() {
               } />
               <Route path="purchase-orders/:id" element={
                 <RoleRoute roles={['seller_admin', 'operations_user']}><PODetail /></RoleRoute>
+              } />
+              <Route path="production" element={
+                <RoleRoute roles={['seller_admin', 'operations_user']}><ProductionPlans /></RoleRoute>
+              } />
+              <Route path="production/:id" element={
+                <RoleRoute roles={['seller_admin', 'operations_user']}><PODetail /></RoleRoute>
+              } />
+              <Route path="dispatch" element={
+                <RoleRoute roles={['seller_admin', 'operations_user']}><Dispatch /></RoleRoute>
               } />
 
               {/* seller_admin + finance_user */}

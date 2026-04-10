@@ -12,6 +12,10 @@ const EVENT_CONFIG = {
   eta_revised:     { dot: 'bg-amber-500 dark:bg-amber-400',    label: 'ETA Revised' },
   mark_dispatched: { dot: 'bg-teal-500 dark:bg-teal-400',      label: 'Marked Dispatched' },
   invoice_created: { dot: 'bg-indigo-500 dark:bg-indigo-400',  label: 'Invoice Created' },
+  production_plan_saved:     { dot: 'bg-sky-500 dark:bg-sky-400',       label: 'Production Plan Saved' },
+  production_plan_submitted: { dot: 'bg-amber-500 dark:bg-amber-400',   label: 'Production Plan Submitted' },
+  production_plan_approved:  { dot: 'bg-emerald-500 dark:bg-emerald-400', label: 'Production Plan Approved' },
+  production_actual_updated: { dot: 'bg-violet-500 dark:bg-violet-400', label: 'Production Actual Updated' },
 };
 
 function fmtTimestamp(iso) {

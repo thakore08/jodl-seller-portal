@@ -139,6 +139,14 @@ class ZohoBooksService {
   }
 
   /**
+   * Fetch shipment-module records from the custom OMS shipment module.
+   * This uses the same Zoho Books org and token configuration as PO sync.
+   */
+  async getShipmentModule(filters = {}) {
+    return this.request('GET', '/cm_oms_shipment_module', null, filters);
+  }
+
+  /**
    * Accept a PO — marks status as "open" (confirmed by vendor).
    * If already open, Zoho returns it as-is.
    */

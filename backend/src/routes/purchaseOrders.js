@@ -1,11 +1,13 @@
 const express  = require('express');
 const fs       = require('fs');
 const path     = require('path');
+const { randomUUID } = require('crypto');
 const zoho     = require('../services/zohoBooksService');
 const whatsapp = require('../services/whatsappService');
 const { sellers } = require('../data/sellers');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
 const poAttachments = require('../data/poAttachments');
+const { getProductionPlan, listProductionPlans, setProductionPlan } = require('../data/productionPlans');
 const {
   poLocalStatus,
   notifiedPoIds,
@@ -13,6 +15,7 @@ const {
   poLineDeliveryDates,
   poRTDData,
   poActivityLog,
+  saveLocalState,
 } = require('../data/poLocalState');
 
 // No time window — any unnotified 'issued' PO is always notified.
@@ -71,13 +74,186 @@ router.get('/:id/whatsapp-chat', (req, res) => {
 
 // Helper: append an event to a PO's activity log
 function appendActivity(poId, event, actor, details = {}) {
-  if (!poActivityLog.has(poId)) poActivityLog.set(poId, []);
-  poActivityLog.get(poId).unshift({
+  const entries = poActivityLog.has(poId) ? [...(poActivityLog.get(poId) || [])] : [];
+  entries.unshift({
     event,
     actor,
     timestamp: new Date().toISOString(),
     details,
   });
+  poActivityLog.set(poId, entries);
+  saveLocalState();
+}
+
+function isValidDateString(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function toNumber(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function eachDateString(startDate, endDate) {
+  if (!isValidDateString(startDate) || !isValidDateString(endDate)) return [];
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return [];
+
+  const dates = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+function addDays(dateString, days) {
+  const dt = new Date(`${dateString}T00:00:00Z`);
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
+}
+
+function sumField(rows, field) {
+  return rows.reduce((sum, row) => sum + toNumber(row?.[field]), 0);
+}
+
+function splitTotal(total, parts) {
+  if (parts <= 0) return [];
+  const rounded = Math.round(toNumber(total) * 100);
+  const base = Math.floor(rounded / parts);
+  let remainder = rounded - (base * parts);
+  return Array.from({ length: parts }, () => {
+    const value = base + (remainder > 0 ? 1 : 0);
+    if (remainder > 0) remainder -= 1;
+    return value / 100;
+  });
+}
+
+function buildProductionPlan(po, existingPlan = null, incomingPlan = {}) {
+  const poId = po.purchaseorder_id;
+  const poNumber = po.purchaseorder_number || poId;
+  const lineItems = Array.isArray(po.line_items) ? po.line_items : [];
+  const basePlan = existingPlan || {};
+  const startDate = incomingPlan.start_date || basePlan.start_date || new Date().toISOString().slice(0, 10);
+  const endDate = incomingPlan.end_date || basePlan.end_date || addDays(startDate, 29);
+  const dateSpan = eachDateString(startDate, endDate);
+  const incomingLines = Array.isArray(incomingPlan.lines) ? incomingPlan.lines : null;
+  const existingLines = Array.isArray(basePlan.lines) ? basePlan.lines : [];
+
+  const lines = lineItems.map((poItem, itemIndex) => {
+    const incomingLine = incomingLines?.find(line => Number(line?.item_index) === itemIndex);
+    const existingLine = existingLines.find(line => Number(line?.item_index) === itemIndex) || {};
+    const sourceEntries = Array.isArray(incomingLine?.entries)
+      ? incomingLine.entries
+      : Array.isArray(existingLine.entries)
+        ? existingLine.entries
+        : dateSpan.map(entryDate => ({ entry_date: entryDate }));
+
+    const entries = sourceEntries
+      .map(entry => ({
+        entry_id: entry.entry_id || randomUUID(),
+        entry_date: isValidDateString(entry.entry_date) ? entry.entry_date : null,
+        planned_qty: toNumber(entry.planned_qty),
+        estimated_qty: toNumber(entry.estimated_qty),
+        actual_qty: toNumber(entry.actual_qty),
+        good_qty: toNumber(entry.good_qty),
+        scrap_qty: toNumber(entry.scrap_qty),
+        rework_qty: toNumber(entry.rework_qty),
+        variance_qty: toNumber(entry.actual_qty) - toNumber(entry.planned_qty),
+        variance_reason: typeof entry.variance_reason === 'string' ? entry.variance_reason.trim() : '',
+        shift: typeof entry.shift === 'string' ? entry.shift.trim() : '',
+        machine_or_line: typeof entry.machine_or_line === 'string' ? entry.machine_or_line.trim() : '',
+        supervisor_name: typeof entry.supervisor_name === 'string' ? entry.supervisor_name.trim() : '',
+        remarks: typeof entry.remarks === 'string' ? entry.remarks.trim() : '',
+      }))
+      .filter(entry => entry.entry_date)
+      .sort((a, b) => a.entry_date.localeCompare(b.entry_date));
+
+    const poQty = toNumber(poItem.quantity);
+    const totalPlannedQty = sumField(entries, 'planned_qty');
+    const totalEstimatedQty = sumField(entries, 'estimated_qty');
+    const totalActualQty = sumField(entries, 'actual_qty');
+    const totalGoodQty = sumField(entries, 'good_qty');
+    const totalScrapQty = sumField(entries, 'scrap_qty');
+    const totalReworkQty = sumField(entries, 'rework_qty');
+    const remainingQty = Math.max(poQty - totalGoodQty, 0);
+
+    return {
+      line_id: incomingLine?.line_id || existingLine.line_id || randomUUID(),
+      item_index: itemIndex,
+      item_id: poItem.item_id || existingLine.item_id || '',
+      item_name: poItem.name || existingLine.item_name || `Item ${itemIndex + 1}`,
+      description: poItem.description || existingLine.description || '',
+      uom: poItem.unit || existingLine.uom || '',
+      po_qty: poQty,
+      remaining_qty: remainingQty,
+      target_planned_qty: toNumber(incomingLine?.target_planned_qty ?? existingLine.target_planned_qty ?? totalPlannedQty),
+      target_estimated_qty: toNumber(incomingLine?.target_estimated_qty ?? existingLine.target_estimated_qty ?? totalEstimatedQty),
+      total_planned_qty: totalPlannedQty,
+      total_estimated_qty: totalEstimatedQty,
+      total_actual_qty: totalActualQty,
+      total_good_qty: totalGoodQty,
+      total_scrap_qty: totalScrapQty,
+      total_rework_qty: totalReworkQty,
+      variance_qty: totalActualQty - totalPlannedQty,
+      entries,
+    };
+  });
+
+  const totalPoQty = lines.reduce((sum, line) => sum + line.po_qty, 0);
+  const totalPlannedQty = lines.reduce((sum, line) => sum + line.total_planned_qty, 0);
+  const totalEstimatedQty = lines.reduce((sum, line) => sum + line.total_estimated_qty, 0);
+  const totalActualQty = lines.reduce((sum, line) => sum + line.total_actual_qty, 0);
+  const totalGoodQty = lines.reduce((sum, line) => sum + line.total_good_qty, 0);
+  const totalScrapQty = lines.reduce((sum, line) => sum + line.total_scrap_qty, 0);
+  const totalReworkQty = lines.reduce((sum, line) => sum + line.total_rework_qty, 0);
+
+  return {
+    plan_id: basePlan.plan_id || randomUUID(),
+    po_id: poId,
+    po_number: poNumber,
+    vendor_id: po.vendor_id || null,
+    planning_basis: incomingPlan.planning_basis || basePlan.planning_basis || 'day',
+    start_date: startDate,
+    end_date: endDate,
+    status: incomingPlan.status || basePlan.status || 'draft',
+    remarks: typeof incomingPlan.remarks === 'string'
+      ? incomingPlan.remarks.trim()
+      : (basePlan.remarks || ''),
+    submitted_by: basePlan.submitted_by || null,
+    submitted_at: basePlan.submitted_at || null,
+    approved_by: basePlan.approved_by || null,
+    approved_at: basePlan.approved_at || null,
+    last_updated_by: basePlan.last_updated_by || null,
+    last_updated_at: basePlan.last_updated_at || null,
+    summary: {
+      total_po_qty: totalPoQty,
+      total_planned_qty: totalPlannedQty,
+      total_estimated_qty: totalEstimatedQty,
+      total_actual_qty: totalActualQty,
+      total_good_qty: totalGoodQty,
+      total_scrap_qty: totalScrapQty,
+      total_rework_qty: totalReworkQty,
+      remaining_qty: Math.max(totalPoQty - totalGoodQty, 0),
+      variance_qty: totalActualQty - totalPlannedQty,
+      completion_pct: totalPoQty > 0 ? Number(((totalGoodQty / totalPoQty) * 100).toFixed(2)) : 0,
+    },
+    lines,
+  };
+}
+
+function getEffectiveStatus(po) {
+  if (!po) return null;
+  if (po.local_status === 'rejected') return 'rejected';
+  if (po.local_status === 'dispatched') return 'dispatched';
+  if (po.local_status === 'accepted') return 'accepted';
+  if (po.status === 'cancelled') return 'rejected';
+  if (po.status === 'billed') return 'invoiced';
+  if (po.status === 'open') return 'issued';
+  if (po.status === 'issued') return 'issued';
+  return null;
 }
 
 // Helper: inject all local data into a single PO object
@@ -146,14 +322,228 @@ router.get('/stats', async (req, res) => {
   res.json(stats);
 });
 
+// ─── GET /api/purchase-orders/production-plans ──────────────────────────────
+router.get('/production-plans', requireRole('seller_admin', 'operations_user'), async (req, res) => {
+  const vendorId = req.seller.vendor_id;
+  const data = await zoho.getPurchaseOrders({
+    page: 1,
+    per_page: 200,
+    ...(vendorId ? { vendor_id: vendorId } : {}),
+  });
+
+  const planMap = new Map(listProductionPlans().map(plan => [plan.po_id, plan]));
+
+  const productionEligible = (data.purchaseorders || [])
+    .filter(po => po.status !== 'draft')
+    .map(mergeLocalStatus)
+    .filter(po => {
+      const existingPlan = planMap.get(po.purchaseorder_id) || null;
+      const effectiveStatus = getEffectiveStatus(po);
+      const sellerAccepted = ['accepted', 'dispatched'].includes(po.local_status);
+
+      // Production should only unlock after explicit seller acceptance.
+      // If a plan already exists, keep showing it unless the PO was rejected.
+      return effectiveStatus !== 'rejected' && (sellerAccepted || !!existingPlan);
+    });
+
+  const plans = productionEligible
+    .map(po => {
+      const existingPlan = planMap.get(po.purchaseorder_id) || null;
+      const plan = buildProductionPlan(po, existingPlan);
+      return {
+        ...plan,
+        has_saved_plan: !!existingPlan,
+        effective_status: getEffectiveStatus(po),
+        line_count: Array.isArray(plan.lines) ? plan.lines.length : 0,
+      };
+    })
+    .sort((a, b) => String(b.last_updated_at || b.submitted_at || '').localeCompare(String(a.last_updated_at || a.submitted_at || '')));
+
+  res.json({ success: true, production_plans: plans });
+});
+
 // ─── GET /api/purchase-orders/:id ────────────────────────────────────────────
 router.get('/:id', async (req, res) => {
   const data = await zoho.getPurchaseOrderById(req.params.id);
   // Merge local status into detail response
   if (data.purchaseorder) {
     data.purchaseorder = mergeLocalStatus(data.purchaseorder);
+    const productionPlan = getProductionPlan(req.params.id);
+    if (productionPlan) data.purchaseorder.production_plan = productionPlan;
   }
   res.json(data);
+});
+
+// ─── GET /api/purchase-orders/:id/production-plan ───────────────────────────
+router.get('/:id/production-plan', async (req, res) => {
+  const poData = await zoho.getPurchaseOrderById(req.params.id);
+  const po = poData.purchaseorder;
+  if (!po) {
+    return res.status(404).json({ error: true, message: 'Purchase order not found' });
+  }
+
+  const existingPlan = getProductionPlan(req.params.id);
+  const plan = buildProductionPlan(po, existingPlan);
+  res.json({ success: true, production_plan: plan });
+});
+
+// ─── PUT /api/purchase-orders/:id/production-plan ───────────────────────────
+router.put('/:id/production-plan', requireRole('seller_admin', 'operations_user'), async (req, res) => {
+  const poData = await zoho.getPurchaseOrderById(req.params.id);
+  const po = poData.purchaseorder;
+  if (!po) {
+    return res.status(404).json({ error: true, message: 'Purchase order not found' });
+  }
+
+  const existingPlan = getProductionPlan(req.params.id);
+  if (existingPlan?.status === 'approved') {
+    return res.status(400).json({ error: true, message: 'Approved production plan is locked' });
+  }
+
+  const nextPlan = buildProductionPlan(po, existingPlan, req.body || {});
+  nextPlan.status = existingPlan?.status === 'submitted' ? 'submitted' : 'draft';
+  nextPlan.last_updated_by = req.seller.name || req.seller.email;
+  nextPlan.last_updated_at = new Date().toISOString();
+
+  setProductionPlan(req.params.id, nextPlan);
+  appendActivity(req.params.id, 'production_plan_saved', req.seller.name || req.seller.email, {
+    planning_basis: nextPlan.planning_basis,
+    start_date: nextPlan.start_date,
+    end_date: nextPlan.end_date,
+  });
+
+  res.json({ success: true, message: 'Production plan saved', production_plan: nextPlan });
+});
+
+// ─── POST /api/purchase-orders/:id/production-plan/submit ───────────────────
+router.post('/:id/production-plan/submit', requireRole('seller_admin', 'operations_user'), async (req, res) => {
+  const poData = await zoho.getPurchaseOrderById(req.params.id);
+  const po = poData.purchaseorder;
+  if (!po) {
+    return res.status(404).json({ error: true, message: 'Purchase order not found' });
+  }
+
+  const existingPlan = getProductionPlan(req.params.id);
+  if (!existingPlan) {
+    return res.status(400).json({ error: true, message: 'Save a production plan before submitting it' });
+  }
+  if (existingPlan.status === 'approved') {
+    return res.status(400).json({ error: true, message: 'Production plan is already approved' });
+  }
+
+  const nextPlan = buildProductionPlan(po, existingPlan);
+  nextPlan.status = 'submitted';
+  nextPlan.submitted_by = req.seller.name || req.seller.email;
+  nextPlan.submitted_at = new Date().toISOString();
+  nextPlan.last_updated_by = req.seller.name || req.seller.email;
+  nextPlan.last_updated_at = nextPlan.submitted_at;
+
+  setProductionPlan(req.params.id, nextPlan);
+  appendActivity(req.params.id, 'production_plan_submitted', req.seller.name || req.seller.email, {
+    total_planned_qty: nextPlan.summary.total_planned_qty,
+    total_actual_qty: nextPlan.summary.total_actual_qty,
+  });
+
+  res.json({ success: true, message: 'Production plan submitted', production_plan: nextPlan });
+});
+
+// ─── POST /api/purchase-orders/:id/production-plan/approve ──────────────────
+router.post('/:id/production-plan/approve', requireRole('seller_admin'), async (req, res) => {
+  const poData = await zoho.getPurchaseOrderById(req.params.id);
+  const po = poData.purchaseorder;
+  if (!po) {
+    return res.status(404).json({ error: true, message: 'Purchase order not found' });
+  }
+
+  const existingPlan = getProductionPlan(req.params.id);
+  if (!existingPlan) {
+    return res.status(400).json({ error: true, message: 'No production plan found to approve' });
+  }
+
+  const nextPlan = buildProductionPlan(po, existingPlan);
+  nextPlan.status = 'approved';
+  nextPlan.approved_by = req.seller.name || req.seller.email;
+  nextPlan.approved_at = new Date().toISOString();
+  nextPlan.last_updated_by = req.seller.name || req.seller.email;
+  nextPlan.last_updated_at = nextPlan.approved_at;
+
+  setProductionPlan(req.params.id, nextPlan);
+  appendActivity(req.params.id, 'production_plan_approved', req.seller.name || req.seller.email, {
+    completion_pct: nextPlan.summary.completion_pct,
+  });
+
+  res.json({ success: true, message: 'Production plan approved', production_plan: nextPlan });
+});
+
+// ─── POST /api/purchase-orders/:id/production-plan/actuals ──────────────────
+// Approved plans allow only row-wise actual + remarks updates.
+router.post('/:id/production-plan/actuals', requireRole('seller_admin', 'operations_user'), async (req, res) => {
+  const poData = await zoho.getPurchaseOrderById(req.params.id);
+  const po = poData.purchaseorder;
+  if (!po) {
+    return res.status(404).json({ error: true, message: 'Purchase order not found' });
+  }
+
+  const existingPlan = getProductionPlan(req.params.id);
+  if (!existingPlan) {
+    return res.status(400).json({ error: true, message: 'No production plan found' });
+  }
+  if (existingPlan.status !== 'approved') {
+    return res.status(400).json({ error: true, message: 'Actual updates are allowed only after plan approval' });
+  }
+
+  const { line_id, entry_ids, actual_qty, remarks = '' } = req.body || {};
+  if (!line_id || !Array.isArray(entry_ids) || entry_ids.length === 0) {
+    return res.status(400).json({ error: true, message: 'line_id and entry_ids are required' });
+  }
+
+  const actualValue = toNumber(actual_qty);
+  const nextLines = (existingPlan.lines || []).map(line => {
+    if (line.line_id !== line_id) return line;
+
+    const targetEntries = line.entries.filter(entry => entry_ids.includes(entry.entry_id));
+    if (!targetEntries.length) return line;
+
+    const distributedActuals = splitTotal(actualValue, targetEntries.length);
+    let entryIndex = 0;
+
+    return {
+      ...line,
+      entries: line.entries.map(entry => {
+        if (!entry_ids.includes(entry.entry_id)) return entry;
+        const nextActual = distributedActuals[entryIndex] || 0;
+        entryIndex += 1;
+        return {
+          ...entry,
+          actual_qty: nextActual,
+          good_qty: nextActual,
+          remarks: typeof remarks === 'string' ? remarks.trim() : '',
+          variance_qty: nextActual - toNumber(entry.planned_qty),
+        };
+      }),
+    };
+  });
+
+  const nextPlan = buildProductionPlan(po, {
+    ...existingPlan,
+    lines: nextLines,
+  });
+  nextPlan.status = existingPlan.status;
+  nextPlan.submitted_by = existingPlan.submitted_by;
+  nextPlan.submitted_at = existingPlan.submitted_at;
+  nextPlan.approved_by = existingPlan.approved_by;
+  nextPlan.approved_at = existingPlan.approved_at;
+  nextPlan.last_updated_by = req.seller.name || req.seller.email;
+  nextPlan.last_updated_at = new Date().toISOString();
+
+  setProductionPlan(req.params.id, nextPlan);
+  appendActivity(req.params.id, 'production_actual_updated', req.seller.name || req.seller.email, {
+    line_id,
+    actual_qty: actualValue,
+    remarks: typeof remarks === 'string' ? remarks.trim() : '',
+  });
+
+  res.json({ success: true, message: 'Production actual updated', production_plan: nextPlan });
 });
 
 // ─── POST /api/purchase-orders/:id/accept ────────────────────────────────────

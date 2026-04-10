@@ -6,6 +6,8 @@ import ThemeModeToggle from './ThemeModeToggle';
 
 const PAGE_TITLES = [
   { key: '/purchase-orders', title: 'Purchase Orders', subtitle: 'Track issued, accepted, and dispatched orders' },
+  { key: '/production', title: 'Production', subtitle: 'Monitor production plans, actual output, and remaining PO balance' },
+  { key: '/dispatch', title: 'Dispatch', subtitle: 'Track ready-to-dispatch line items and Zoho shipment sync status' },
   { key: '/invoices', title: 'Invoices', subtitle: 'Review extracted bills and mapped invoice data' },
   { key: '/payments', title: 'Payments', subtitle: 'Monitor settlements, balance, and overdue amounts' },
   { key: '/profile', title: 'Profile', subtitle: 'Manage account, business and payout details' },
