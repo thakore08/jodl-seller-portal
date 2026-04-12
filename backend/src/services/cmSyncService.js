@@ -138,8 +138,8 @@ async function syncProductionPlanned(zohoVendorId, poLineItems, planLines) {
 
     await pool.query(
       `INSERT INTO cm_production_control
-         (po_line_item_id, planned_qty, actual_qty, created_at, updated_at)
-       VALUES ($1, $2, 0, NOW(), NOW())
+         (po_line_item_id, planned_qty, actual_qty, updated_at)
+       VALUES ($1, $2, 0, NOW())
        ON CONFLICT (po_line_item_id) DO UPDATE SET
          planned_qty = EXCLUDED.planned_qty,
          updated_at  = NOW()`,
@@ -177,8 +177,8 @@ async function syncProductionActuals(zohoVendorId, poLineItems, planLines) {
 
     await pool.query(
       `INSERT INTO cm_production_control
-         (po_line_item_id, planned_qty, actual_qty, created_at, updated_at)
-       VALUES ($1, 0, $2, NOW(), NOW())
+         (po_line_item_id, planned_qty, actual_qty, updated_at)
+       VALUES ($1, 0, $2, NOW())
        ON CONFLICT (po_line_item_id) DO UPDATE SET
          actual_qty = EXCLUDED.actual_qty,
          updated_at = NOW()`,
