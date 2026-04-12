@@ -60,7 +60,7 @@ async function syncCMVendorPOs(req, res) {
             `INSERT INTO cm_purchase_orders
                (po_number, vendor_id, zoho_po_id, zoho_status, status, po_date, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-             ON CONFLICT (zoho_po_id) DO UPDATE SET
+             ON CONFLICT (zoho_po_id) WHERE zoho_po_id IS NOT NULL DO UPDATE SET
                po_number   = EXCLUDED.po_number,
                zoho_status = EXCLUDED.zoho_status,
                status      = EXCLUDED.status,
@@ -103,7 +103,7 @@ async function syncCMVendorPOs(req, res) {
               `INSERT INTO cm_po_line_items
                  (po_id, po_item_id, zoho_line_item_id, description, po_qty, unit_price, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-               ON CONFLICT (zoho_line_item_id) DO UPDATE SET
+               ON CONFLICT (zoho_line_item_id) WHERE zoho_line_item_id IS NOT NULL DO UPDATE SET
                  description = EXCLUDED.description,
                  po_qty      = EXCLUDED.po_qty,
                  unit_price  = EXCLUDED.unit_price,
