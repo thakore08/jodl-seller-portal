@@ -50,6 +50,37 @@ app.use('/api/bills',       require('./src/routes/bills'));
 app.get('/health',     (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 app.get('/api/health', (req, res) => res.json({ success: true, data: { status: 'ok', timestamp: new Date().toISOString() } }));
 
+// ─── CM Sync diagnostics (temporary) ─────────────────────────────────────────
+// GET /api/cm-diag  → shows cm_vendors table and DB config status
+// POST /api/cm-diag/sync/:po_id  → runs upsertPOToCMDB for a PO and returns result
+app.get('/api/cm-diag', async (req, res) => {
+  const dbConfigured = !!(process.env.DATABASE_URL || process.env.DB_URL);
+  if (!dbConfigured) return res.json({ dbConfigured: false, vendors: [] });
+  try {
+    const pool = require('./src/db/pool');
+    const { rows } = await pool.query('SELECT id, name, zoho_vendor_id, is_contract_manufacturer FROM cm_vendors ORDER BY name');
+    res.json({ dbConfigured: true, vendors: rows });
+  } catch (err) {
+    res.status(500).json({ dbConfigured, error: err.message });
+  }
+});
+
+app.post('/api/cm-diag/sync/:po_id', async (req, res) => {
+  const dbConfigured = !!(process.env.DATABASE_URL || process.env.DB_URL);
+  if (!dbConfigured) return res.json({ success: false, reason: 'DATABASE_URL not configured' });
+  try {
+    const zoho   = require('./src/services/zohoBooksService');
+    const cmSync = require('./src/services/cmSyncService');
+    const detail = await zoho.getPurchaseOrderById(req.params.po_id);
+    const po     = detail?.purchaseorder;
+    if (!po) return res.status(404).json({ success: false, reason: 'PO not found in Zoho' });
+    await cmSync.upsertPOToCMDB(po);
+    res.json({ success: true, po_number: po.purchaseorder_number, vendor_id: po.vendor_id, line_items: (po.line_items || []).length });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 
 // ─── Global Error Handler ────────────────────────────────────────────────────
 app.use((err, req, res, _next) => {

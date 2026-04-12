@@ -48,10 +48,19 @@ async function isCMVendor(zohoVendorId) {
  * Expects `po` to be a full Zoho purchase order object (with line_items).
  */
 async function upsertPOToCMDB(po) {
-  if (!isDbConfigured) return;
+  if (!isDbConfigured) {
+    console.warn('[CMSync] upsertPOToCMDB skipped — DATABASE_URL not configured');
+    return;
+  }
 
-  const vendor = await isCMVendor(po.vendor_id);
-  if (!vendor) return;
+  const vendorId = po.vendor_id;
+  console.log(`[CMSync] upsertPOToCMDB: PO ${po.purchaseorder_number} (${po.purchaseorder_id}), vendor_id=${vendorId}`);
+
+  const vendor = await isCMVendor(vendorId);
+  if (!vendor) {
+    console.warn(`[CMSync] vendor_id="${vendorId}" not found in cm_vendors (not a CM or zoho_vendor_id mismatch)`);
+    return;
+  }
 
   const cmStatus = mapZohoStatus(po.status);
 
