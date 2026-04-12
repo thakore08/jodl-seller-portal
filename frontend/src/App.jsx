@@ -16,6 +16,7 @@ import PaymentDetail from './pages/PaymentDetail';
 import Profile from './pages/Profile';
 import WhatsApp from './pages/WhatsApp';
 import AdminNotifications from './pages/AdminNotifications';
+import CMInventory from './pages/CMInventory';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 
@@ -108,6 +109,11 @@ export default function App() {
               } />
               <Route path="admin/notifications" element={
                 <RoleRoute roles={['seller_admin']}><AdminNotifications /></RoleRoute>
+              } />
+
+              {/* CM Inventory — seller_admin + operations_user */}
+              <Route path="cm-inventory" element={
+                <RoleRoute roles={['seller_admin', 'operations_user']}><CMInventory /></RoleRoute>
               } />
             </Route>
 

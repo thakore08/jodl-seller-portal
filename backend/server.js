@@ -6,6 +6,15 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 
+// ─── PostgreSQL migrations (CM Inventory) ─────────────────────────────────────
+// Only runs if DATABASE_URL / DB_URL is configured.
+if (process.env.DATABASE_URL || process.env.DB_URL) {
+  const runMigrations = require('./src/db/migrate');
+  runMigrations()
+    .then(() => console.log('   CM Migrations: up to date'))
+    .catch(err => console.error('[DB] Migration failed:', err.message));
+}
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -32,7 +41,14 @@ app.use('/api/whatsapp',        require('./src/routes/whatsapp'));
 app.use('/api/zoho',            require('./src/routes/zoho'));
 app.use('/api/admin',           require('./src/routes/adminNotifications'));
 
-app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+// ─── CM Inventory routes ──────────────────────────────────────────────────────
+app.use('/api/config',      require('./src/routes/config'));
+app.use('/api/inventory',   require('./src/routes/inventory'));
+app.use('/api/production',  require('./src/routes/production'));
+app.use('/api/bills',       require('./src/routes/bills'));
+
+app.get('/health',     (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+app.get('/api/health', (req, res) => res.json({ success: true, data: { status: 'ok', timestamp: new Date().toISOString() } }));
 
 // ─── Global Error Handler ────────────────────────────────────────────────────
 app.use((err, req, res, _next) => {
@@ -49,7 +65,8 @@ app.listen(PORT, () => {
   console.log(`\n🚀  JODL Seller Portal backend running on http://localhost:${PORT}`);
   console.log(`   Zoho Org ID : ${process.env.ZOHO_ORG_ID || '60032173740'}`);
   console.log(`   Zoho API    : ${process.env.ZOHO_API_BASE || 'https://sandbox.zohoapis.com/books/v3'}`);
-  console.log(`   WhatsApp    : ${process.env.WHATSAPP_PHONE_NUMBER_ID ? 'configured' : 'NOT configured'}\n`);
+  console.log(`   WhatsApp    : ${process.env.WHATSAPP_PHONE_NUMBER_ID ? 'configured' : 'NOT configured'}`);
+  console.log(`   DB (CM Inv) : ${process.env.DATABASE_URL || process.env.DB_URL ? 'configured' : 'NOT configured'}\n`);
 
   // Start proactive Zoho token refresh scheduler
   const zohoService = require('./src/services/zohoBooksService');
