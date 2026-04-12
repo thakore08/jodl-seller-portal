@@ -95,4 +95,92 @@ async function getInventoryDetail(req, res) {
   }
 }
 
-module.exports = { getInventorySummary, getInventoryDetail };
+// GET /api/inventory/production
+// All CM vendors → POs → line items with production control status
+// Used by the Production tab in CM Inventory page
+async function getProductionView(_req, res) {
+  const sql = `
+    SELECT
+      v.id                             AS vendor_id,
+      v.name                           AS vendor_name,
+      po.id                            AS po_id,
+      po.po_number,
+      po.zoho_po_id,
+      po.zoho_status,
+      po.status                        AS cm_status,
+      po.po_date,
+      pli.id                           AS po_line_item_id,
+      pli.po_item_id,
+      pli.description,
+      pli.po_qty,
+      pli.unit_price,
+      COALESCE(pc.planned_qty, 0)      AS planned_qty,
+      COALESCE(pc.actual_qty,  0)      AS actual_qty,
+      COALESCE(b.billed_qty,   0)      AS billed_qty,
+      (pli.po_qty - COALESCE(pc.actual_qty, 0))  AS remaining_qty
+    FROM cm_vendors v
+    JOIN cm_purchase_orders po    ON po.vendor_id = v.id
+    JOIN cm_po_line_items pli     ON pli.po_id = po.id
+    LEFT JOIN cm_production_control pc ON pc.po_line_item_id = pli.id
+    LEFT JOIN (
+      SELECT po_line_item_id, SUM(billed_qty) AS billed_qty
+      FROM   cm_bills
+      WHERE  status IN ('open', 'paid')
+      GROUP  BY po_line_item_id
+    ) b ON b.po_line_item_id = pli.id
+    WHERE v.is_contract_manufacturer = true
+    ORDER BY v.name, po.po_number, pli.po_item_id
+  `;
+
+  try {
+    const { rows } = await pool.query(sql);
+
+    // Group by vendor → PO → line items
+    const grouped = {};
+    for (const row of rows) {
+      if (!grouped[row.vendor_id]) {
+        grouped[row.vendor_id] = {
+          vendor_id:   row.vendor_id,
+          vendor_name: row.vendor_name,
+          pos:         {},
+        };
+      }
+      const vendor = grouped[row.vendor_id];
+      if (!vendor.pos[row.po_id]) {
+        vendor.pos[row.po_id] = {
+          po_id:       row.po_id,
+          po_number:   row.po_number,
+          zoho_po_id:  row.zoho_po_id,
+          zoho_status: row.zoho_status,
+          cm_status:   row.cm_status,
+          po_date:     row.po_date,
+          line_items:  [],
+        };
+      }
+      vendor.pos[row.po_id].line_items.push({
+        po_line_item_id: row.po_line_item_id,
+        po_item_id:      row.po_item_id,
+        description:     row.description,
+        po_qty:          Number(row.po_qty),
+        unit_price:      Number(row.unit_price),
+        planned_qty:     Number(row.planned_qty),
+        actual_qty:      Number(row.actual_qty),
+        billed_qty:      Number(row.billed_qty),
+        remaining_qty:   Number(row.remaining_qty),
+      });
+    }
+
+    // Convert nested objects to arrays
+    const data = Object.values(grouped).map(v => ({
+      ...v,
+      pos: Object.values(v.pos),
+    }));
+
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('[DB] getProductionView error:', err.message);
+    res.status(500).json({ success: false, error: 'Database error' });
+  }
+}
+
+module.exports = { getInventorySummary, getInventoryDetail, getProductionView };

@@ -1,7 +1,8 @@
 const express                              = require('express');
 const { query, validationResult }          = require('express-validator');
 const { authenticate }                     = require('../middleware/authMiddleware');
-const { getInventorySummary, getInventoryDetail } = require('../controllers/inventoryController');
+const { getInventorySummary, getInventoryDetail, getProductionView } = require('../controllers/inventoryController');
+const { syncCMVendorPOs }                         = require('../controllers/syncController');
 
 const router = express.Router();
 
@@ -27,5 +28,11 @@ router.get(
   validate,
   getInventoryDetail
 );
+
+// GET /api/inventory/production — all CM vendors → POs → line items + production status
+router.get('/production', getProductionView);
+
+// POST /api/inventory/sync  — pull CM vendor POs from Zoho Books into CM DB
+router.post('/sync', syncCMVendorPOs);
 
 module.exports = router;
