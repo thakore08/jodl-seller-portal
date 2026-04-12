@@ -8,6 +8,7 @@ const { sellers } = require('../data/sellers');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
 const poAttachments = require('../data/poAttachments');
 const { getProductionPlan, listProductionPlans, setProductionPlan } = require('../data/productionPlans');
+const cmSync = require('../services/cmSyncService');
 const {
   poLocalStatus,
   notifiedPoIds,
@@ -412,6 +413,10 @@ router.put('/:id/production-plan', requireRole('seller_admin', 'operations_user'
     end_date: nextPlan.end_date,
   });
 
+  // Sync planned qty to CM DB (non-blocking — only applies if vendor is a CM)
+  cmSync.syncProductionPlanned(po.vendor_id, po.line_items, nextPlan.lines)
+    .catch(err => console.warn('[CMSync] Production planned sync failed:', err.message));
+
   res.json({ success: true, message: 'Production plan saved', production_plan: nextPlan });
 });
 
@@ -543,6 +548,10 @@ router.post('/:id/production-plan/actuals', requireRole('seller_admin', 'operati
     remarks: typeof remarks === 'string' ? remarks.trim() : '',
   });
 
+  // Sync actual qty to CM DB (non-blocking — only applies if vendor is a CM)
+  cmSync.syncProductionActuals(po.vendor_id, po.line_items, nextPlan.lines)
+    .catch(err => console.warn('[CMSync] Production actuals sync failed:', err.message));
+
   res.json({ success: true, message: 'Production actual updated', production_plan: nextPlan });
 });
 
@@ -590,6 +599,11 @@ router.post('/:id/accept', requireRole('seller_admin', 'operations_user'), async
   } else {
     appendActivity(id, 'po_accepted', sellerName, {});
   }
+
+  // Sync accepted PO + line items to CM DB if vendor is a contract manufacturer (non-blocking)
+  cmSync.upsertPOToCMDB(po).catch(err =>
+    console.warn('[CMSync] Accept PO upsert failed:', err.message)
+  );
 
   // Send WhatsApp post-acceptance action menu (non-blocking)
   if (whatsapp.isConfigured && req.seller.whatsapp_enabled && req.seller.whatsapp_number) {

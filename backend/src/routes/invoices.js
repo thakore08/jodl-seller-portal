@@ -11,6 +11,7 @@ const invoiceMatcher = require('../services/invoiceMatchingService');
 const poAttachments  = require('../data/poAttachments');
 const { getWaInvoice, updateWaInvoice, listWaInvoices } = require('../data/waInvoices');
 const { authenticate, requireRole } = require('../middleware/authMiddleware');
+const cmSync = require('../services/cmSyncService');
 
 const router = express.Router();
 
@@ -647,6 +648,11 @@ router.post('/', upload.single('file'), async (req, res) => {
       });
     }
   }
+
+  // Sync bill to CM DB if vendor is a contract manufacturer (non-blocking)
+  // billPayload.line_items carry purchaseorder_line_item_id which maps to cm_po_line_items
+  cmSync.syncBillToCMDB(po.vendor_id, billPayload.line_items, result.bill)
+    .catch(err => console.warn('[CMSync] Bill sync to CM DB failed:', err.message));
 
   res.status(201).json({
     success: true,
