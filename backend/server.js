@@ -50,6 +50,65 @@ app.use('/api/bills',       require('./src/routes/bills'));
 app.get('/health',     (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 app.get('/api/health', (req, res) => res.json({ success: true, data: { status: 'ok', timestamp: new Date().toISOString() } }));
 
+// ─── DB diagnostic (public — no auth, safe — shows no credentials) ────────────
+app.get('/api/db-status', async (req, res) => {
+  const connStr = process.env.DATABASE_URL || process.env.DB_URL || '';
+  const configured = !!connStr;
+  const looksValid = connStr.startsWith('postgresql://') || connStr.startsWith('postgres://');
+
+  if (!configured) {
+    return res.json({ success: false, configured: false, error: 'DATABASE_URL not set in environment' });
+  }
+  if (!looksValid) {
+    return res.json({
+      success: false,
+      configured: true,
+      looksValid: false,
+      hint: 'DATABASE_URL does not start with postgresql:// — it may be set to the Neon console URL instead of the connection string',
+      prefix: connStr.slice(0, 30) + '...',
+    });
+  }
+
+  // Try a live connection
+  try {
+    const pool = require('./src/db/pool');
+    const { rows } = await pool.query(`
+      SELECT table_name FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name LIKE 'cm_%'
+      ORDER BY table_name
+    `);
+    return res.json({
+      success: true,
+      configured: true,
+      looksValid: true,
+      connected: true,
+      cm_tables: rows.map(r => r.table_name),
+    });
+  } catch (err) {
+    return res.json({
+      success: false,
+      configured: true,
+      looksValid: true,
+      connected: false,
+      error: err.message,
+    });
+  }
+});
+
+// ─── Manual migration trigger (public for now — remove after setup) ───────────
+app.post('/api/db-migrate', async (req, res) => {
+  const connStr = process.env.DATABASE_URL || process.env.DB_URL || '';
+  if (!connStr) return res.status(400).json({ success: false, error: 'DATABASE_URL not set' });
+  try {
+    const runMigrations = require('./src/db/migrate');
+    await runMigrations();
+    res.json({ success: true, message: 'Migrations complete' });
+  } catch (err) {
+    console.error('[DB] Manual migration error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ─── Global Error Handler ────────────────────────────────────────────────────
 app.use((err, req, res, _next) => {
   console.error('[ERROR]', err.message, err.stack);
