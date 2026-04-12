@@ -21,6 +21,8 @@
 
 const express   = require('express');
 const whatsapp  = require('../services/whatsappService');
+const zohoSvc   = require('../services/zohoBooksService');
+const cmSync    = require('../services/cmSyncService');
 
 const router = express.Router();
 
@@ -50,6 +52,18 @@ router.post('/webhook', async (req, res) => {
 
   // ── PO Created or Issued ────────────────────────────────────────────────────
   if (event === 'purchaseorder_created' || event === 'purchaseorder_issued') {
+    // Sync to CM DB when PO is issued (fetch full detail for line_items)
+    if (event === 'purchaseorder_issued' && po.purchaseorder_id) {
+      zohoSvc.getPurchaseOrderById(po.purchaseorder_id)
+        .then(detail => {
+          const fullPO = detail?.purchaseorder;
+          if (fullPO) {
+            return cmSync.upsertPOToCMDB(fullPO);
+          }
+        })
+        .catch(err => console.warn('[CMSync] Webhook PO issued sync failed:', err.message));
+    }
+
     if (!whatsapp.isConfigured) {
       console.warn('[Zoho Webhook] WhatsApp not configured — skipping notification');
       return;
