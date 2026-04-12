@@ -94,7 +94,7 @@ class WhatsAppService {
           : payload.type === 'interactive'
           ? (payload.interactive?.body?.text || `[interactive: ${payload.interactive?.type}]`)
           : `[${payload.type || 'unknown'}]`;
-        waMessages.logMessage({
+        await waMessages.logMessage({
           direction: 'out',
           phone:     payload.to,
           body,

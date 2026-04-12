@@ -56,7 +56,7 @@ router.post('/webhook', async (req, res) => {
       || message.buttonReplyTitle
       || (message.filename ? `[file: ${message.filename}]` : null)
       || `[${message.type}]`;
-    waMessages.logMessage({
+    await waMessages.logMessage({
       direction: 'in',
       phone:     message.from,
       body,

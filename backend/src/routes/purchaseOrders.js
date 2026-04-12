@@ -50,7 +50,7 @@ router.use(authenticate);
 // Returns the full WA message history with the seller associated with this PO.
 // Identifies the seller by vendor_id (passed as ?vendor_id= query param, or falls
 // back to the authenticated seller's own vendor_id).
-router.get('/:id/whatsapp-chat', (req, res) => {
+router.get('/:id/whatsapp-chat', async (req, res) => {
   const { getMessagesByPhone } = require('../data/waMessages');
 
   // Resolve the target seller's phone:
@@ -68,7 +68,7 @@ router.get('/:id/whatsapp-chat', (req, res) => {
     return res.json({ messages: [] });
   }
 
-  const messages = getMessagesByPhone(phone);
+  const messages = await getMessagesByPhone(phone);
   res.json({ messages });
 });
 

@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "NODE_TLS_REJECT_UNAUTHORIZED=0 nodemon server.js"
   },
   "dependencies": {
     "axios": "^1.6.7",
@@ -20,7 +20,8 @@
     "pdf-parse": "^2.4.5",
     "pdf2pic": "^3.2.0",
     "tesseract.js": "^5.1.1",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "mongodb": "^6"
   },
   "devDependencies": {
     "nodemon": "^3.0.3"
