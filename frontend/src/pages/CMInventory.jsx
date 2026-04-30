@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   RefreshCw, Settings, Package, ChevronDown, ChevronRight,
   Warehouse, BarChart3, ListFilter, CheckCircle2, AlertCircle,
-  Pencil, Save, X, Plus, CloudDownload, Factory,
+  Pencil, Save, X, Plus, DownloadCloud, Factory,
 } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -112,7 +112,7 @@ function CMConfigPanel({ onConfigSaved }) {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-              <CloudDownload className="h-4 w-4 text-brand-600 dark:text-brand-400" />
+              <DownloadCloud className="h-4 w-4 text-brand-600 dark:text-brand-400" />
               Sync POs from Zoho Books
             </h3>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
@@ -120,7 +120,7 @@ function CMConfigPanel({ onConfigSaved }) {
             </p>
           </div>
           <button onClick={syncNow} disabled={syncing} className="btn-primary px-4 py-2 text-xs">
-            {syncing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CloudDownload className="h-3.5 w-3.5" />}
+            {syncing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <DownloadCloud className="h-3.5 w-3.5" />}
             {syncing ? 'Syncing…' : 'Sync Now'}
           </button>
         </div>
@@ -374,7 +374,7 @@ function ProductionView() {
         <div className="flex items-center gap-2">
           {syncMsg && <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" />{syncMsg}</p>}
           <button onClick={syncAndReload} disabled={syncing || loading} className="btn-outline text-xs px-3 py-1.5">
-            <CloudDownload className={`h-3.5 w-3.5 ${syncing ? 'animate-bounce' : ''}`} />
+            <DownloadCloud className={`h-3.5 w-3.5 ${syncing ? 'animate-bounce' : ''}`} />
             {syncing ? 'Syncing…' : 'Sync from Zoho'}
           </button>
           <button onClick={load} disabled={loading || syncing} className="btn-outline text-xs px-3 py-1.5">
@@ -396,7 +396,7 @@ function ProductionView() {
             Configure CM vendors with Zoho IDs in Config tab, then click <strong>Sync from Zoho</strong>.
           </p>
           <button onClick={syncAndReload} disabled={syncing} className="btn-primary mt-4 text-xs px-4 py-2">
-            <CloudDownload className="h-3.5 w-3.5" /> Sync from Zoho Now
+            <DownloadCloud className="h-3.5 w-3.5" /> Sync from Zoho Now
           </button>
         </div>
       ) : (
