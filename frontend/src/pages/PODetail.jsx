@@ -393,7 +393,7 @@ export default function PODetail() {
   const canManageProduction = hasRole('seller_admin', 'operations_user');
   const canApproveProduction = hasRole('seller_admin');
   const contextualAction = getContextualAction(po, effectiveStatus, isOpsRole, isFinanceRole);
-  const showRTDPanel     = isProductionView && ['accepted', 'dispatched', 'invoiced'].includes(effectiveStatus);
+  const showRTDPanel     = ['accepted', 'dispatched', 'invoiced'].includes(effectiveStatus);
   const rtdReadOnly      = effectiveStatus === 'invoiced';
   const productionEditable = canManageProduction && !['issued', 'rejected'].includes(effectiveStatus);
 
