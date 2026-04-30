@@ -656,7 +656,7 @@ export default function PODetail() {
         />
       )}
 
-      {!isProductionView && (
+      {!isProductionView && !showRTDPanel && (
         <div className="card">
           <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Line Items</h2>
