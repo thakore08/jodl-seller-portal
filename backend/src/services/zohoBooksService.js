@@ -121,7 +121,8 @@ class ZohoBooksService {
       const code   = err.response?.data?.code;
       const status = err.response?.status || 500;
       console.error('[Zoho] API error', status, code, msg, JSON.stringify(err.response?.data));
-      throw Object.assign(new Error(`Zoho Books API error: ${msg}`), { status });
+      const label = code != null ? `[${code}] ` : '';
+      throw Object.assign(new Error(`Zoho Books API error: ${label}${msg}`), { status, zohoCode: code });
     }
   }
 

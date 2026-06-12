@@ -46,6 +46,19 @@ const memUpload = multer({
   },
 });
 
+// Greedy-fill bill qty across SO batch details. Zoho requires sum(batch qty) === line qty.
+function distributeBatchQty(soBatches, totalQty) {
+  const result = [];
+  let remaining = totalQty;
+  for (const bd of soBatches) {
+    if (remaining <= 0) break;
+    const take = Math.min(remaining, bd.quantity);
+    result.push({ so_item_batch_detail_id: bd.so_item_batch_detail_id, quantity: take });
+    remaining -= take;
+  }
+  return result;
+}
+
 // ─── POST /api/invoices/extract ───────────────────────────────────────────────
 // Extracts invoice data from a PDF and matches line items against a PO.
 // Body (multipart/form-data): file (PDF) + purchaseorder_id
@@ -477,9 +490,10 @@ router.post('/', upload.single('file'), async (req, res) => {
       const soLineMap = new Map((Array.isArray(so.line_items) ? so.line_items : []).map(li => [li.item_id, li]));
       invoiceLineItems = invoicePayloadOverride.line_items.map(li => {
         const soLi = soLineMap.get(li.item_id) || {};
-        // Use SO batch assignments if available, otherwise default to batch_number 'NA'
+        // Distribute bill qty across SO batches in order (greedy fill).
+        // Using li.quantity for every batch would multiply the total — Zoho rejects that.
         const invBatchDetails = Array.isArray(soLi.so_item_batch_details) && soLi.so_item_batch_details.length > 0
-          ? soLi.so_item_batch_details.map(bd => ({ so_item_batch_detail_id: bd.so_item_batch_detail_id, quantity: li.quantity }))
+          ? distributeBatchQty(soLi.so_item_batch_details, li.quantity)
           : [{ batch_number: li.batch_number || 'NA', quantity: li.quantity }];
         return {
           so_line_item_id: li.so_line_item_id || soLi.line_item_id,
@@ -500,9 +514,10 @@ router.post('/', upload.single('file'), async (req, res) => {
         .filter(soLi => billQtyMap.has(soLi.item_id) && billQtyMap.get(soLi.item_id) > 0)
         .map(soLi => {
           const qty = billQtyMap.get(soLi.item_id);
-          // Use SO batch assignments if available, otherwise default to batch_number 'NA'
+          // Distribute bill qty across SO batches in order (greedy fill).
+          // Using qty for every batch would multiply the total — Zoho rejects that.
           const invBatchDetails = Array.isArray(soLi.so_item_batch_details) && soLi.so_item_batch_details.length > 0
-            ? soLi.so_item_batch_details.map(bd => ({ so_item_batch_detail_id: bd.so_item_batch_detail_id, quantity: qty }))
+            ? distributeBatchQty(soLi.so_item_batch_details, qty)
             : [{ batch_number: 'NA', quantity: qty }];
           return {
             so_line_item_id: soLi.line_item_id,   // links to SO line item — inherits tax config
