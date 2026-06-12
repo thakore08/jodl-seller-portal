@@ -570,12 +570,24 @@ router.post('/', upload.single('file'), async (req, res) => {
       .catch(err => console.warn('[Invoice] Failed to set PO custom field:', err.message));
   }
 
-  // fire-and-forget: submit bill (draft → open) and optionally approve
+  // Submit bill (draft → open) — awaited so a failure surfaces to the caller
   if (createdBillId) {
-    zoho.submitBill(createdBillId)
-      .then(() => zoho.approveBill(createdBillId)
-        .catch(err => console.warn('[Invoice] Bill approve skipped (no approval workflow?):', err.message)))
-      .catch(err => console.warn('[Invoice] Bill submit failed:', err.message));
+    try {
+      await zoho.submitBill(createdBillId);
+      try {
+        await zoho.approveBill(createdBillId);
+      } catch (approveErr) {
+        console.warn('[Invoice] Bill approve skipped (no approval workflow?):', approveErr.message);
+      }
+    } catch (submitErr) {
+      console.error('[Invoice] Bill submit failed:', submitErr.message);
+      zoho.deleteBill(createdBillId)
+        .catch(delErr => console.warn('[Invoice] Bill rollback (delete) failed:', delErr.message));
+      return res.status(422).json({
+        error:   true,
+        message: `Bill was created in Zoho but could not be submitted: ${submitErr.message}. The draft bill has been rolled back — please try again.`,
+      });
+    }
   }
 
   // fire-and-forget: WhatsApp bill-posted notification to seller
