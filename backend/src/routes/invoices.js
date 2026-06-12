@@ -631,8 +631,21 @@ router.post('/', upload.single('file'), async (req, res) => {
   if (invoicePayload) {
     let createdInvId = null;
     try {
-      // Create invoice (draft)
-      const invResult = await zoho.createInvoice(invoicePayload);
+      // Create invoice (draft) — retry on Zoho's transient child-SKU validation error (1070673)
+      let invResult;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          invResult = await zoho.createInvoice(invoicePayload);
+          break;
+        } catch (createErr) {
+          if (Number(createErr.zohoCode) === 1070673 && attempt < 3) {
+            console.warn(`[AutoInvoice] Child SKU validation in progress, retrying in 4 s (attempt ${attempt}/3)…`);
+            await new Promise(r => setTimeout(r, 4000));
+          } else {
+            throw createErr;
+          }
+        }
+      }
       const inv = invResult.invoice;
       if (!inv?.invoice_id) throw new Error('createInvoice returned no invoice object');
       createdInvId = inv.invoice_id;
